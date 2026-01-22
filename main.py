@@ -11,6 +11,7 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     from src.bot.bot import bot, dp
     from src.bot.handlers.start import router as start_router
+    from src.bot.handlers.feedback import router as feedback_router
     
     logger.info("Starting bot...")
     
@@ -19,6 +20,7 @@ async def lifespan(app: FastAPI):
     logger.info("Redis connected")
     
     dp.include_router(start_router)
+    dp.include_router(feedback_router)
     polling_task = asyncio.create_task(dp.start_polling(bot))
     logger.info("Bot polling started")
     
