@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     bot_token: str
     redis_url: str = "redis://localhost:6379"
     webhook_url: str | None = None
+    admin_id: int = 0
     debug: bool = True
 
     class Config:

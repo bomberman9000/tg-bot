@@ -12,20 +12,23 @@ async def lifespan(app: FastAPI):
     from src.bot.bot import bot, dp
     from src.bot.handlers.start import router as start_router
     from src.bot.handlers.feedback import router as feedback_router
+    from src.bot.handlers.admin import router as admin_router
+    from src.bot.middlewares.logging import LoggingMiddleware
     
     logger.info("Starting bot...")
-    
     redis = await get_redis()
     await redis.ping()
     logger.info("Redis connected")
     
+    dp.message.middleware(LoggingMiddleware())
+    dp.callback_query.middleware(LoggingMiddleware())
+    dp.include_router(admin_router)
     dp.include_router(start_router)
     dp.include_router(feedback_router)
+    
     polling_task = asyncio.create_task(dp.start_polling(bot))
     logger.info("Bot polling started")
-    
     yield
-    
     logger.info("Shutting down...")
     polling_task.cancel()
     await bot.session.close()
@@ -36,8 +39,7 @@ app = FastAPI(title="TG Bot API", lifespan=lifespan)
 @app.get("/api/health")
 async def health():
     redis = await get_redis()
-    redis_ok = await redis.ping()
-    return {"status": "ok", "redis": redis_ok}
+    return {"status": "ok", "redis": await redis.ping()}
 
 @app.get("/")
 async def root():
