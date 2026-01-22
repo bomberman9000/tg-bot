@@ -8,14 +8,14 @@ router = Router()
 
 @router.error()
 async def error_handler(event: ErrorEvent):
-    logger.error(f"Error: {event.exception}", exc_info=True)
-    
+    logger.error(f"Error: {event.exception}")
     settings = get_settings()
     if settings.admin_id:
         try:
+            error_text = str(event.exception)[:500]
             await bot.send_message(
                 settings.admin_id,
-                f"❌ <b>Ошибка бота:</b>\n\n<code>{event.exception}</code>"
+                f"❌ Ошибка бота:\n\n<code>{error_text}</code>"
             )
-        except Exception as e:
-            logger.error(f"Failed to notify admin: {e}")
+        except:
+            pass
