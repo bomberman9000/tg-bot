@@ -1,11 +1,10 @@
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from src.core.config import get_settings
+from src.core.config import settings
 from src.core.logger import logger
 from src.core.redis import get_redis, close_redis
-
-settings = get_settings()
+from src.core.database import init_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -17,6 +16,10 @@ async def lifespan(app: FastAPI):
     from src.bot.middlewares.logging import LoggingMiddleware
     
     logger.info("Starting bot...")
+    
+    await init_db()
+    logger.info("Database initialized")
+    
     redis = await get_redis()
     await redis.ping()
     logger.info("Redis connected")

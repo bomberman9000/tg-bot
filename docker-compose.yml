@@ -7,6 +7,7 @@ services:
       - .env
     depends_on:
       - redis
+      - postgres
     restart: unless-stopped
 
   redis:
@@ -17,5 +18,18 @@ services:
       - redis_data:/data
     restart: unless-stopped
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bot
+      POSTGRES_PASSWORD: botpass
+      POSTGRES_DB: botdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
 volumes:
   redis_data:
+  postgres_data:
