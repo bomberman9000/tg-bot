@@ -17,3 +17,10 @@ class CargoForm(StatesGroup):
 class CarrierRegister(StatesGroup):
     phone = State()
     confirm = State()
+class SearchCargo(StatesGroup):
+    from_city = State()
+    to_city = State()
+
+class SubscribeRoute(StatesGroup):
+    from_city = State()
+    to_city = State()

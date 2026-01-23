@@ -16,6 +16,7 @@ async def lifespan(app: FastAPI):
     from src.bot.handlers.errors import router as errors_router
     from src.bot.handlers.reminder import router as reminder_router
     from src.bot.handlers.cargo import router as cargo_router
+    from src.bot.handlers.search import router as search_router
     from src.bot.middlewares.logging import LoggingMiddleware
     
     logger.info("Starting bot...")
@@ -33,6 +34,7 @@ async def lifespan(app: FastAPI):
     dp.callback_query.middleware(LoggingMiddleware())
     dp.include_router(admin_router)
     dp.include_router(cargo_router)
+    dp.include_router(search_router)
     dp.include_router(start_router)
     dp.include_router(feedback_router)
     dp.include_router(errors_router)
@@ -47,7 +49,7 @@ async def lifespan(app: FastAPI):
     await bot.session.close()
     await close_redis()
 
-app = FastAPI(title="TG Bot API", lifespan=lifespan)
+app = FastAPI(title="Logistics Bot API", lifespan=lifespan)
 
 @app.get("/api/health")
 async def health():
@@ -57,38 +59,46 @@ async def health():
 @app.get("/api/stats")
 async def api_stats():
     from src.core.database import async_session
-    from src.core.models import User, Cargo
+    from src.core.models import User, Cargo, RouteSubscription
     from sqlalchemy import select, func
     
     redis = await get_redis()
     async with async_session() as session:
         users = await session.scalar(select(func.count()).select_from(User))
         cargos = await session.scalar(select(func.count()).select_from(Cargo))
+        subs = await session.scalar(select(func.count()).select_from(RouteSubscription))
     
     return {
         "users": users,
         "cargos": cargos,
+        "subscriptions": subs,
         "messages": await redis.get("stats:messages") or 0
     }
 
 @app.get("/api/cargos")
-async def api_cargos():
+async def api_cargos(from_city: str = None, to_city: str = None):
     from src.core.database import async_session
     from src.core.models import Cargo, CargoStatus
     from sqlalchemy import select
     
     async with async_session() as session:
-        result = await session.execute(
-            select(Cargo).where(Cargo.status == CargoStatus.NEW).limit(50)
-        )
+        query = select(Cargo).where(Cargo.status == CargoStatus.NEW)
+        if from_city:
+            query = query.where(Cargo.from_city.ilike(f"%{from_city}%"))
+        if to_city:
+            query = query.where(Cargo.to_city.ilike(f"%{to_city}%"))
+        
+        result = await session.execute(query.order_by(Cargo.created_at.desc()).limit(50))
         cargos = result.scalars().all()
     
     return [{
         "id": c.id,
         "from": c.from_city,
         "to": c.to_city,
+        "type": c.cargo_type,
         "weight": c.weight,
-        "price": c.price
+        "price": c.price,
+        "date": c.load_date.strftime("%d.%m.%Y")
     } for c in cargos]
 
 @app.get("/")

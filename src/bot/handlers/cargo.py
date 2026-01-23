@@ -202,6 +202,7 @@ async def show_cargo_confirm(message: Message, state: FSMContext):
     await state.set_state(CargoForm.confirm)
 
 @router.callback_query(CargoForm.confirm, F.data == "yes")
+@router.callback_query(CargoForm.confirm, F.data == "yes")
 async def cargo_confirm_yes(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     
@@ -219,50 +220,45 @@ async def cargo_confirm_yes(cb: CallbackQuery, state: FSMContext):
         session.add(cargo)
         await session.commit()
         cargo_id = cargo.id
+        
+        # Уведомляем подписчиков
+        from src.core.models import RouteSubscription
+        from src.bot.bot import bot
+        from sqlalchemy import or_
+        
+        result = await session.execute(
+            select(RouteSubscription)
+            .where(RouteSubscription.is_active == True)
+            .where(RouteSubscription.user_id != cb.from_user.id)
+            .where(
+                or_(
+                    RouteSubscription.from_city.is_(None),
+                    RouteSubscription.from_city.ilike(f"%{data['from_city']}%")
+                )
+            )
+            .where(
+                or_(
+                    RouteSubscription.to_city.is_(None),
+                    RouteSubscription.to_city.ilike(f"%{data['to_city']}%")
+                )
+            )
+        )
+        subs = result.scalars().all()
+        
+        for sub in subs:
+            try:
+                await bot.send_message(
+                    sub.user_id,
+                    f"🔔 <b>Новый груз!</b>\n\n"
+                    f"🛣 {data['from_city']} → {data['to_city']}\n"
+                    f"📦 {data['cargo_type']}, {data['weight']}т\n"
+                    f"💰 {data['price']} ₽\n\n"
+                    f"/cargo_{cargo_id}"
+                )
+            except:
+                pass
     
-    logger.info(f"Cargo {cargo_id} created by {cb.from_user.id}")
+    logger.info(f"Cargo {cargo_id} created, notified {len(subs)} subscribers")
     await cb.message.edit_text(f"✅ Груз #{cargo_id} создан!", reply_markup=main_menu())
     await state.clear()
     await cb.answer()
-
-@router.callback_query(CargoForm.confirm, F.data == "no")
-async def cargo_confirm_no(cb: CallbackQuery, state: FSMContext):
-    await cb.message.edit_text("❌ Отменено", reply_markup=main_menu())
-    await state.clear()
-    await cb.answer()
-
-# === Отклик на груз ===
-@router.callback_query(F.data.startswith("respond_"))
-async def respond_cargo(cb: CallbackQuery):
-    cargo_id = int(cb.data.split("_")[1])
-    
-    async with async_session() as session:
-        # Проверяем что не свой груз
-        result = await session.execute(select(Cargo).where(Cargo.id == cargo_id))
-        cargo = result.scalar_one_or_none()
-        
-        if not cargo:
-            await cb.answer("❌ Груз не найден", show_alert=True)
-            return
-        
-        if cargo.owner_id == cb.from_user.id:
-            await cb.answer("❌ Это твой груз", show_alert=True)
-            return
-        
-        # Проверяем нет ли уже отклика
-        existing = await session.execute(
-            select(CargoResponse)
-            .where(CargoResponse.cargo_id == cargo_id)
-            .where(CargoResponse.carrier_id == cb.from_user.id)
-        )
-        if existing.scalar_one_or_none():
-            await cb.answer("⚠️ Ты уже откликнулся", show_alert=True)
-            return
-        
-        # Создаем отклик
-        response = CargoResponse(cargo_id=cargo_id, carrier_id=cb.from_user.id)
-        session.add(response)
-        await session.commit()
-    
-    logger.info(f"Response to cargo {cargo_id} from {cb.from_user.id}")
-    await cb.answer("✅ Отклик отправлен!", show_alert=True)

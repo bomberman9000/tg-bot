@@ -74,3 +74,12 @@ class Reminder(Base):
     remind_at: Mapped[datetime] = mapped_column(DateTime)
     is_sent: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+class RouteSubscription(Base):
+    __tablename__ = "route_subscriptions"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger)
+    from_city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    to_city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
