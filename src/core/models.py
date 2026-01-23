@@ -10,7 +10,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     full_name: Mapped[str] = mapped_column(String(255))
-    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    phone:company: Mapped[str | None] = mapped_column(String(255), nullable=True) Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_carrier: Mapped[bool] = mapped_column(Boolean, default=False)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

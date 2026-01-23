@@ -27,3 +27,6 @@ class SubscribeRoute(StatesGroup):
 class RateForm(StatesGroup):
     score = State()
     comment = State()
+class ProfileEdit(StatesGroup):
+    phone = State()
+    company = State()
