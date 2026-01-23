@@ -83,3 +83,13 @@ class RouteSubscription(Base):
     to_city: Mapped[str | None] = mapped_column(String(100), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+class Rating(Base):
+    __tablename__ = "ratings"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cargo_id: Mapped[int] = mapped_column(Integer)
+    from_user_id: Mapped[int] = mapped_column(BigInteger)  # кто ставит
+    to_user_id: Mapped[int] = mapped_column(BigInteger)    # кому ставят
+    score: Mapped[int] = mapped_column(Integer)            # 1-5
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

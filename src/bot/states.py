@@ -24,3 +24,6 @@ class SearchCargo(StatesGroup):
 class SubscribeRoute(StatesGroup):
     from_city = State()
     to_city = State()
+class RateForm(StatesGroup):
+    score = State()
+    comment = State()
