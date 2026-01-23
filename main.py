@@ -15,6 +15,7 @@ async def lifespan(app: FastAPI):
     from src.bot.handlers.admin import router as admin_router
     from src.bot.handlers.errors import router as errors_router
     from src.bot.handlers.reminder import router as reminder_router
+    from src.bot.handlers.cargo import router as cargo_router
     from src.bot.middlewares.logging import LoggingMiddleware
     
     logger.info("Starting bot...")
@@ -31,6 +32,7 @@ async def lifespan(app: FastAPI):
     dp.message.middleware(LoggingMiddleware())
     dp.callback_query.middleware(LoggingMiddleware())
     dp.include_router(admin_router)
+    dp.include_router(cargo_router)
     dp.include_router(start_router)
     dp.include_router(feedback_router)
     dp.include_router(errors_router)
@@ -55,35 +57,43 @@ async def health():
 @app.get("/api/stats")
 async def api_stats():
     from src.core.database import async_session
-    from src.core.models import User, Feedback
+    from src.core.models import User, Cargo
     from sqlalchemy import select, func
     
     redis = await get_redis()
     async with async_session() as session:
         users = await session.scalar(select(func.count()).select_from(User))
-        feedbacks = await session.scalar(select(func.count()).select_from(Feedback))
+        cargos = await session.scalar(select(func.count()).select_from(Cargo))
     
     return {
         "users": users,
-        "feedbacks": feedbacks,
+        "cargos": cargos,
         "messages": await redis.get("stats:messages") or 0
     }
 
-@app.get("/api/users")
-async def api_users():
+@app.get("/api/cargos")
+async def api_cargos():
     from src.core.database import async_session
-    from src.core.models import User
+    from src.core.models import Cargo, CargoStatus
     from sqlalchemy import select
     
     async with async_session() as session:
-        result = await session.execute(select(User).limit(100))
-        users = result.scalars().all()
+        result = await session.execute(
+            select(Cargo).where(Cargo.status == CargoStatus.NEW).limit(50)
+        )
+        cargos = result.scalars().all()
     
-    return [{"id": u.id, "name": u.full_name, "banned": u.is_banned} for u in users]
+    return [{
+        "id": c.id,
+        "from": c.from_city,
+        "to": c.to_city,
+        "weight": c.weight,
+        "price": c.price
+    } for c in cargos]
 
 @app.get("/")
 async def root():
-    return {"message": "Bot API is running"}
+    return {"message": "Logistics Bot API"}
 
 if __name__ == "__main__":
     import uvicorn
