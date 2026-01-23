@@ -445,3 +445,39 @@ async def cancel_cargo(cb: CallbackQuery):
     
     await cb.message.edit_text(f"❌ Груз #{cargo_id} отменён", reply_markup=main_menu())
     await cb.answer()
+# === Генерация ТТН ===
+@router.message(F.text.startswith("/ttn_"))
+async def generate_ttn_handler(message: Message):
+    try:
+        cargo_id = int(message.text.split("_")[1])
+    except:
+        return
+    
+    async with async_session() as session:
+        result = await session.execute(select(Cargo).where(Cargo.id == cargo_id))
+        cargo = result.scalar_one_or_none()
+        
+        if not cargo:
+            await message.answer("❌ Груз не найден")
+            return
+        
+        if cargo.owner_id != message.from_user.id and cargo.carrier_id != message.from_user.id:
+            await message.answer("❌ Нет доступа")
+            return
+        
+        owner_result = await session.execute(select(User).where(User.id == cargo.owner_id))
+        owner = owner_result.scalar_one_or_none()
+        
+        carrier = None
+        if cargo.carrier_id:
+            carrier_result = await session.execute(select(User).where(User.id == cargo.carrier_id))
+            carrier = carrier_result.scalar_one_or_none()
+    
+    from src.core.documents import generate_ttn
+    from aiogram.types import BufferedInputFile
+    
+    pdf_bytes = generate_ttn(cargo, owner, carrier)
+    doc = BufferedInputFile(pdf_bytes, filename=f"TTN_{cargo_id}.pdf")
+    
+    await message.answer_document(doc, caption=f"📄 ТТН для груза #{cargo_id}")
+    logger.info(f"TTN generated for cargo {cargo_id}")
