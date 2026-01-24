@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from src.core.config import settings
 from src.core.logger import logger
 from src.core.redis import get_redis, close_redis
@@ -63,6 +64,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Logistics Bot API", lifespan=lifespan)
 
+# Admin panel
+from src.admin.routes import router as admin_panel_router
+app.include_router(admin_panel_router)
+
 @app.get("/api/health")
 async def health():
     redis = await get_redis()
@@ -100,7 +105,7 @@ async def api_cargos(from_city: str = None, to_city: str = None):
 
 @app.get("/")
 async def root():
-    return {"message": "Logistics Bot API"}
+    return {"message": "Logistics Bot API", "admin": "/admin"}
 
 if __name__ == "__main__":
     import uvicorn
