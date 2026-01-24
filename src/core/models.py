@@ -10,9 +10,12 @@ class User(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     full_name: Mapped[str] = mapped_column(String(255))
-    phone:company: Mapped[str | None] = mapped_column(String(255), nullable=True) Mapped[str | None] = mapped_column(String(20), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    company: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_carrier: Mapped[bool] = mapped_column(Boolean, default=False)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    rating_score: Mapped[float] = mapped_column(Float, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 class CargoStatus(enum.Enum):
@@ -26,20 +29,18 @@ class Cargo(Base):
     __tablename__ = "cargos"
     
     id: Mapped[int] = mapped_column(primary_key=True)
-    owner_id: Mapped[int] = mapped_column(BigInteger)  # кто создал
-    carrier_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # кто взял
+    owner_id: Mapped[int] = mapped_column(BigInteger)
+    carrier_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     
-    # Маршрут
     from_city: Mapped[str] = mapped_column(String(100))
     to_city: Mapped[str] = mapped_column(String(100))
     
-    # Груз
     cargo_type: Mapped[str] = mapped_column(String(100))
-    weight: Mapped[float] = mapped_column(Float)  # тонны
-    volume: Mapped[float | None] = mapped_column(Float, nullable=True)  # м³
+    weight: Mapped[float] = mapped_column(Float)
+    volume: Mapped[float | None] = mapped_column(Float, nullable=True)
     
-    # Условия
-    price: Mapped[int] = mapped_column(Integer)  # рубли
+    price: Mapped[int] = mapped_column(Integer)
+    actual_price: Mapped[int | None] = mapped_column(Integer, nullable=True)
     load_date: Mapped[datetime] = mapped_column(DateTime)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     
@@ -74,6 +75,7 @@ class Reminder(Base):
     remind_at: Mapped[datetime] = mapped_column(DateTime)
     is_sent: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 class RouteSubscription(Base):
     __tablename__ = "route_subscriptions"
     
@@ -83,13 +85,25 @@ class RouteSubscription(Base):
     to_city: Mapped[str | None] = mapped_column(String(100), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 class Rating(Base):
     __tablename__ = "ratings"
     
     id: Mapped[int] = mapped_column(primary_key=True)
     cargo_id: Mapped[int] = mapped_column(Integer)
-    from_user_id: Mapped[int] = mapped_column(BigInteger)  # кто ставит
-    to_user_id: Mapped[int] = mapped_column(BigInteger)    # кому ставят
-    score: Mapped[int] = mapped_column(Integer)            # 1-5
+    from_user_id: Mapped[int] = mapped_column(BigInteger)
+    to_user_id: Mapped[int] = mapped_column(BigInteger)
+    score: Mapped[int] = mapped_column(Integer)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cargo_id: Mapped[int] = mapped_column(Integer)
+    from_user_id: Mapped[int] = mapped_column(BigInteger)
+    to_user_id: Mapped[int] = mapped_column(BigInteger)
+    message: Mapped[str] = mapped_column(Text)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

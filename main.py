@@ -18,6 +18,9 @@ async def lifespan(app: FastAPI):
     from src.bot.handlers.cargo import router as cargo_router
     from src.bot.handlers.search import router as search_router
     from src.bot.handlers.rating import router as rating_router
+    from src.bot.handlers.profile import router as profile_router
+    from src.bot.handlers.analytics import router as analytics_router
+    from src.bot.handlers.chat import router as chat_router
     from src.bot.middlewares.logging import LoggingMiddleware
     
     logger.info("Starting bot...")
@@ -37,6 +40,9 @@ async def lifespan(app: FastAPI):
     dp.include_router(cargo_router)
     dp.include_router(search_router)
     dp.include_router(rating_router)
+    dp.include_router(profile_router)
+    dp.include_router(analytics_router)
+    dp.include_router(chat_router)
     dp.include_router(start_router)
     dp.include_router(feedback_router)
     dp.include_router(errors_router)
@@ -64,18 +70,12 @@ async def api_stats():
     from src.core.models import User, Cargo, RouteSubscription
     from sqlalchemy import select, func
     
-    redis = await get_redis()
     async with async_session() as session:
         users = await session.scalar(select(func.count()).select_from(User))
         cargos = await session.scalar(select(func.count()).select_from(Cargo))
         subs = await session.scalar(select(func.count()).select_from(RouteSubscription))
     
-    return {
-        "users": users,
-        "cargos": cargos,
-        "subscriptions": subs,
-        "messages": await redis.get("stats:messages") or 0
-    }
+    return {"users": users, "cargos": cargos, "subscriptions": subs}
 
 @app.get("/api/cargos")
 async def api_cargos(from_city: str = None, to_city: str = None):
