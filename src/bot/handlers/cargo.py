@@ -3,7 +3,7 @@ from aiogram.types import Message, CallbackQuery, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select, or_
-from datetime import datetime
+from datetime import datetime, timedelta
 from src.bot.states import CargoForm
 from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, skip_kb, response_actions
 from src.bot.utils import cargo_deeplink
@@ -193,7 +193,7 @@ async def cargo_price(message: Message, state: FSMContext):
     try:
         price = int(message.text.replace(" ", ""))
         await state.update_data(price=price)
-        await message.answer("Дата загрузки (ДД.ММ.ГГГГ или ДД.ММ)")
+        await message.answer("Дата загрузки (сегодня/завтра/послезавтра или ДД.ММ[.ГГГГ])")
         await state.set_state(CargoForm.load_date)
     except:
         await message.answer("❌ Введи число")
@@ -201,15 +201,24 @@ async def cargo_price(message: Message, state: FSMContext):
 @router.message(CargoForm.load_date)
 async def cargo_date(message: Message, state: FSMContext):
     try:
-        text = message.text
-        if len(text.split(".")) == 2:
-            text += f".{datetime.now().year}"
-        load_date = datetime.strptime(text, "%d.%m.%Y")
+        raw = message.text.strip().lower()
+        today = datetime.now()
+        if raw in {"сегодня", "today"}:
+            load_date = today
+        elif raw in {"завтра", "tomorrow"}:
+            load_date = today + timedelta(days=1)
+        elif raw in {"послезавтра"}:
+            load_date = today + timedelta(days=2)
+        else:
+            text = message.text.strip()
+            if len(text.split(".")) == 2:
+                text += f".{today.year}"
+            load_date = datetime.strptime(text, "%d.%m.%Y")
         await state.update_data(load_date=load_date)
         await message.answer("Комментарий (можно пропустить)", reply_markup=skip_kb())
         await state.set_state(CargoForm.comment)
     except:
-        await message.answer("❌ Формат даты: ДД.ММ.ГГГГ или ДД.ММ")
+        await message.answer("❌ Формат: сегодня/завтра/послезавтра или ДД.ММ[.ГГГГ]")
 
 @router.message(CargoForm.comment)
 async def cargo_comment(message: Message, state: FSMContext):
