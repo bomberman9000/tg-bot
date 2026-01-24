@@ -1,104 +1,149 @@
-from aiogram import Router
-from aiogram.filters import Command
+from aiogram import Router, F
 from aiogram.types import Message
+from aiogram.filters import Command
 from sqlalchemy import select, func
-from src.core.config import get_settings
-from src.core.redis import get_redis
+from src.core.config import settings
 from src.core.database import async_session
-from src.core.models import User, Feedback
+from src.core.models import User, Cargo, Feedback
+from src.core.redis import get_redis
 from src.bot.bot import bot
 
 router = Router()
 
-def admin_filter(message: Message) -> bool:
-    settings = get_settings()
-    return message.from_user.id == settings.admin_id
+def is_admin(user_id: int) -> bool:
+    return user_id == settings.admin_id
 
-@router.message(Command("stats"), admin_filter)
+@router.message(Command("stats"))
 async def admin_stats(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    
     redis = await get_redis()
     async with async_session() as session:
-        users_count = await session.scalar(select(func.count()).select_from(User))
-        feedback_count = await session.scalar(select(func.count()).select_from(Feedback))
-    messages = await redis.get("stats:messages") or 0
-    callbacks = await redis.get("stats:callbacks") or 0
-    text = f"📊 Статистика:\n👥 {users_count}\n💬 {messages}\n🔘 {callbacks}\n📝 {feedback_count}"
+        users = await session.scalar(select(func.count()).select_from(User))
+        cargos = await session.scalar(select(func.count()).select_from(Cargo))
+        feedback = await session.scalar(select(func.count()).select_from(Feedback))
+    
+    messages_count = await redis.get("stats:messages") or 0
+    callbacks_count = await redis.get("stats:callbacks") or 0
+    
+    text = f"📊 <b>Статистика</b>\n\n"
+    text += f"👥 Пользователей: {users}\n"
+    text += f"📦 Грузов: {cargos}\n"
+    text += f"💬 Сообщений: {messages_count}\n"
+    text += f"🔘 Callbacks: {callbacks_count}\n"
+    text += f"📝 Отзывов: {feedback}"
+    
     await message.answer(text)
 
-@router.message(Command("users"), admin_filter)
+@router.message(Command("users"))
 async def admin_users(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    
     async with async_session() as session:
         result = await session.execute(select(User).limit(20))
         users = result.scalars().all()
-    if not users:
-        await message.answer("👥 Пользователей нет")
-        return
-    text = "👥 Пользователи:\n\n"
+    
+    text = "👥 <b>Пользователи:</b>\n\n"
     for u in users:
-        ban = "🚫" if u.is_banned else ""
-        text += f"• {u.id} - {u.full_name} {ban}\n"
+        status = "🚫" if u.is_banned else "✅" if u.is_verified else "👤"
+        text += f"{status} {u.id} | {u.full_name[:20]}\n"
+    
     await message.answer(text)
 
-@router.message(Command("ban"), admin_filter)
-async def admin_ban(message: Message):
+@router.message(Command("ban"))
+async def ban_user(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    
     args = message.text.split()
     if len(args) < 2:
         await message.answer("Использование: /ban USER_ID")
         return
-    user_id = int(args[1])
+    
+    try:
+        user_id = int(args[1])
+    except:
+        await message.answer("❌ Неверный ID")
+        return
+    
     async with async_session() as session:
         result = await session.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
         if user:
             user.is_banned = True
             await session.commit()
-            await message.answer(f"🚫 {user.full_name} забанен")
+            await message.answer(f"🚫 Пользователь {user_id} забанен")
         else:
             await message.answer("❌ Пользователь не найден")
 
-@router.message(Command("unban"), admin_filter)
-async def admin_unban(message: Message):
+@router.message(Command("unban"))
+async def unban_user(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    
     args = message.text.split()
     if len(args) < 2:
         await message.answer("Использование: /unban USER_ID")
         return
-    user_id = int(args[1])
+    
+    try:
+        user_id = int(args[1])
+    except:
+        await message.answer("❌ Неверный ID")
+        return
+    
     async with async_session() as session:
         result = await session.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
         if user:
             user.is_banned = False
             await session.commit()
-            await message.answer(f"✅ {user.full_name} разбанен")
+            await message.answer(f"✅ Пользователь {user_id} разбанен")
         else:
             await message.answer("❌ Пользователь не найден")
 
-@router.message(Command("broadcast"), admin_filter)
-async def admin_broadcast(message: Message):
-    if not message.reply_to_message:
-        await message.answer("↩️ Ответь на сообщение для рассылки")
+@router.message(Command("broadcast"))
+async def broadcast(message: Message):
+    if not is_admin(message.from_user.id):
         return
+    
+    if not message.reply_to_message:
+        await message.answer("Ответь на сообщение которое нужно разослать")
+        return
+    
     async with async_session() as session:
         result = await session.execute(select(User).where(User.is_banned == False))
         users = result.scalars().all()
-    sent, failed = 0, 0
+    
+    sent = 0
     for user in users:
         try:
             await message.reply_to_message.copy_to(user.id)
             sent += 1
         except:
-            failed += 1
-    await message.answer(f"✅ Отправлено: {sent}\n❌ Ошибок: {failed}")
+            pass
+    
+    await message.answer(f"✅ Отправлено {sent}/{len(users)} пользователям")
 
-@router.message(Command("feedback_list"), admin_filter)
-async def admin_feedback(message: Message):
-    async with async_session() as session:
-        result = await session.execute(select(Feedback).order_by(Feedback.id.desc()).limit(10))
-        feedbacks = result.scalars().all()
-    if not feedbacks:
-        await message.answer("📭 Фидбек пуст")
+@router.message(Command("feedback_list"))
+async def feedback_list(message: Message):
+    if not is_admin(message.from_user.id):
         return
-    text = "📝 Последний фидбек:\n\n"
+    
+    async with async_session() as session:
+        result = await session.execute(
+            select(Feedback).order_by(Feedback.created_at.desc()).limit(10)
+        )
+        feedbacks = result.scalars().all()
+    
+    if not feedbacks:
+        await message.answer("📭 Нет отзывов")
+        return
+    
+    text = "📝 <b>Последние отзывы:</b>\n\n"
     for fb in feedbacks:
-        text += f"• [{fb.user_id}] {fb.message[:50]}\n"
+        text += f"👤 {fb.user_id}\n{fb.message[:100]}\n\n"
+    
     await message.answer(text)
