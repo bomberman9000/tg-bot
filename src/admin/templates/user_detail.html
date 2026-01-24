@@ -75,6 +75,9 @@
                 <div class="border-b py-2">
                     <div class="font-medium">{{ cargo.from_city }} → {{ cargo.to_city }}</div>
                     <div class="text-sm text-gray-500">{{ cargo.weight }}т, {{ "{:,}".format(cargo.price) }} ₽</div>
+                    {% if bot_username %}
+                    <a href="https://t.me/{{ bot_username }}?start=cargo_{{ cargo.id }}" class="text-xs text-blue-600 hover:underline" target="_blank">открыть в боте</a>
+                    {% endif %}
                 </div>
                 {% else %}
                 <div class="text-gray-500">Нет грузов</div>

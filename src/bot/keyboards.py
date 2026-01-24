@@ -3,13 +3,12 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def main_menu():
     b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="🚛 Грузы", callback_data="cargos"))
-    b.row(InlineKeyboardButton(text="📦 Добавить груз", callback_data="add_cargo"))
-    b.row(InlineKeyboardButton(text="🔔 Подписки", callback_data="subscriptions"))
-    b.row(InlineKeyboardButton(text="📊 Аналитика", callback_data="analytics"))
-    b.row(InlineKeyboardButton(text="💬 Сообщения", callback_data="messages"))
-    b.row(InlineKeyboardButton(text="🛡 Безопасность", callback_data="antifraud"))
-    b.row(InlineKeyboardButton(text="👤 Профиль", callback_data="profile"))
+    b.row(InlineKeyboardButton(text="🚛 Найти груз", callback_data="search_cargo"))
+    b.row(InlineKeyboardButton(text="📦 Разместить груз", callback_data="add_cargo"))
+    b.row(InlineKeyboardButton(text="🧾 Мои грузы", callback_data="my_cargos"))
+    b.row(InlineKeyboardButton(text="🤝 Мои отклики", callback_data="my_responses"))
+    b.row(InlineKeyboardButton(text="⭐ Рейтинг / Профиль", callback_data="profile"))
+    b.row(InlineKeyboardButton(text="🆘 Поддержка", callback_data="feedback"))
     return b.as_markup()
 
 def confirm_kb():
@@ -80,6 +79,10 @@ def profile_menu():
     b = InlineKeyboardBuilder()
     b.row(InlineKeyboardButton(text="📞 Изменить телефон", callback_data="edit_phone"))
     b.row(InlineKeyboardButton(text="🏢 Изменить компанию", callback_data="edit_company"))
+    b.row(InlineKeyboardButton(text="💬 Сообщения", callback_data="messages"))
+    b.row(InlineKeyboardButton(text="🔔 Подписки", callback_data="subscriptions"))
+    b.row(InlineKeyboardButton(text="📊 Аналитика", callback_data="analytics"))
+    b.row(InlineKeyboardButton(text="🛡 Безопасность", callback_data="antifraud"))
     b.row(InlineKeyboardButton(text="📦 Мои грузы", callback_data="my_cargos"))
     b.row(InlineKeyboardButton(text="📜 История", callback_data="history"))
     b.row(InlineKeyboardButton(text="◀️ Меню", callback_data="menu"))

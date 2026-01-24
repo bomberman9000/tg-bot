@@ -50,7 +50,12 @@
                 <tbody class="divide-y divide-gray-200">
                     {% for cargo in cargos %}
                     <tr class="hover:bg-gray-50">
-                        <td class="px-6 py-4 text-sm">{{ cargo.id }}</td>
+                        <td class="px-6 py-4 text-sm">
+                            <div>{{ cargo.id }}</div>
+                            {% if bot_username %}
+                            <a href="https://t.me/{{ bot_username }}?start=cargo_{{ cargo.id }}" class="text-xs text-blue-600 hover:underline" target="_blank">в боте</a>
+                            {% endif %}
+                        </td>
                         <td class="px-6 py-4 text-sm font-medium">{{ cargo.from_city }} → {{ cargo.to_city }}</td>
                         <td class="px-6 py-4 text-sm">{{ cargo.cargo_type }}</td>
                         <td class="px-6 py-4 text-sm">{{ cargo.weight }} т</td>

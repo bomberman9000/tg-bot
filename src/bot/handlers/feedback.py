@@ -12,7 +12,7 @@ router = Router()
 @router.callback_query(F.data == "feedback")
 async def start_feedback(cb: CallbackQuery, state: FSMContext):
     try:
-        await cb.message.edit_text("📝 Напиши сообщение:")
+        await cb.message.edit_text("🆘 Поддержка\n\nОпиши проблему или оставь отзыв:")
     except TelegramBadRequest:
         pass
     await state.set_state(FeedbackForm.message)
@@ -21,7 +21,7 @@ async def start_feedback(cb: CallbackQuery, state: FSMContext):
 @router.message(FeedbackForm.message)
 async def get_message(message: Message, state: FSMContext):
     await state.update_data(text=message.text)
-    await message.answer(f"Отправить?\n\n{message.text}", reply_markup=confirm_kb())
+    await message.answer(f"Отправить сообщение?\n\n{message.text}", reply_markup=confirm_kb())
     await state.set_state(FeedbackForm.confirm)
 
 @router.callback_query(FeedbackForm.confirm, F.data == "yes")

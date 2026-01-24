@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     bot_token: str
+    bot_username: str | None = None
     redis_url: str = "redis://localhost:6379"
     database_url: str
     admin_id: int | None = None

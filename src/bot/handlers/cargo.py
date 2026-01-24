@@ -6,13 +6,49 @@ from sqlalchemy import select, or_
 from datetime import datetime
 from src.bot.states import CargoForm
 from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, skip_kb, response_actions
+from src.bot.utils import cargo_deeplink
 from src.core.database import async_session
+from src.core.cities import resolve_city
 from src.core.models import Cargo, CargoStatus, CargoResponse, User, RouteSubscription
 from src.core.documents import generate_ttn
 from src.core.logger import logger
 from src.bot.bot import bot
 
 router = Router()
+
+async def send_cargo_details(message: Message, cargo_id: int) -> bool:
+    async with async_session() as session:
+        result = await session.execute(select(Cargo).where(Cargo.id == cargo_id))
+        cargo = result.scalar_one_or_none()
+
+        if not cargo:
+            await message.answer("❌ Груз не найден")
+            return False
+
+        owner = await session.execute(select(User).where(User.id == cargo.owner_id))
+        owner = owner.scalar_one_or_none()
+
+    status_map = {"new": "🆕 Новый", "in_progress": "🚚 В пути", "completed": "✅ Завершён", "cancelled": "❌ Отменён"}
+
+    text = f"📦 <b>Груз #{cargo.id}</b>\n\n"
+    text += f"📍 {cargo.from_city} → {cargo.to_city}\n"
+    text += f"📦 {cargo.cargo_type}\n"
+    text += f"⚖️ {cargo.weight} т\n"
+    text += f"💰 {cargo.price} ₽\n"
+    text += f"📅 {cargo.load_date.strftime('%d.%m.%Y')}\n"
+    text += f"📊 {status_map.get(cargo.status.value, cargo.status.value)}\n"
+    if cargo.comment:
+        text += f"💬 {cargo.comment}\n"
+    text += f"\n👤 Заказчик: {owner.full_name if owner else 'N/A'}"
+    if owner and owner.phone:
+        text += f" ({owner.phone})"
+
+    if cargo.status == CargoStatus.IN_PROGRESS:
+        text += f"\n\n🗺 Отслеживание: /track_{cargo.id}"
+
+    is_owner = cargo.owner_id == message.from_user.id
+    await message.answer(text, reply_markup=cargo_actions(cargo.id, is_owner))
+    return True
 
 @router.callback_query(F.data == "cargos")
 async def cargos_handler(cb: CallbackQuery):
@@ -40,9 +76,10 @@ async def all_cargos(cb: CallbackQuery):
     
     text = "📋 <b>Активные грузы:</b>\n\n"
     for c in cargos:
+        link = cargo_deeplink(c.id)
         text += f"🔹 {c.from_city} → {c.to_city}\n"
         text += f"   {c.cargo_type}, {c.weight}т, {c.price}₽\n"
-        text += f"   /cargo_{c.id}\n\n"
+        text += f"   {link}\n\n"
     
     try:
         await cb.message.edit_text(text, reply_markup=cargos_menu())
@@ -69,8 +106,9 @@ async def my_cargos(cb: CallbackQuery):
     text = "📦 <b>Мои грузы:</b>\n\n"
     for c in cargos:
         status_icon = {"new": "🆕", "in_progress": "🚚", "completed": "✅", "cancelled": "❌"}.get(c.status.value, "❓")
+        link = cargo_deeplink(c.id)
         text += f"{status_icon} {c.from_city} → {c.to_city}\n"
-        text += f"   {c.weight}т, {c.price}₽ /cargo_{c.id}\n\n"
+        text += f"   {c.weight}т, {c.price}₽ {link}\n\n"
     
     try:
         await cb.message.edit_text(text, reply_markup=cargos_menu())
@@ -97,7 +135,8 @@ async def my_responses(cb: CallbackQuery):
     text = "🚛 <b>Мои отклики:</b>\n\n"
     for r in responses:
         status = "⏳" if r.is_accepted is None else ("✅" if r.is_accepted else "❌")
-        text += f"{status} Груз #{r.cargo_id} — {r.price_offer or 'без цены'}₽ /cargo_{r.cargo_id}\n"
+        link = cargo_deeplink(r.cargo_id)
+        text += f"{status} Груз #{r.cargo_id} — {r.price_offer or 'без цены'}₽ {link}\n"
     
     try:
         await cb.message.edit_text(text, reply_markup=cargos_menu())
@@ -107,26 +146,36 @@ async def my_responses(cb: CallbackQuery):
 
 @router.callback_query(F.data == "add_cargo")
 async def add_cargo_start(cb: CallbackQuery, state: FSMContext):
-    await cb.message.edit_text("🚛 <b>Новый груз</b>\n\nОткуда?")
+    await cb.message.edit_text("🚛 <b>Новый груз</b>\n\nОткуда отправка?")
     await state.set_state(CargoForm.from_city)
     await cb.answer()
 
 @router.message(CargoForm.from_city)
 async def cargo_from(message: Message, state: FSMContext):
-    await state.update_data(from_city=message.text)
-    await message.answer("Куда?")
+    city, suggestions = resolve_city(message.text)
+    if not city:
+        hint = f"Возможно, вы имели в виду: {', '.join(suggestions)}" if suggestions else "Введите город РФ."
+        await message.answer(f"❌ Город не найден. {hint}")
+        return
+    await state.update_data(from_city=city)
+    await message.answer("Куда доставить?")
     await state.set_state(CargoForm.to_city)
 
 @router.message(CargoForm.to_city)
 async def cargo_to(message: Message, state: FSMContext):
-    await state.update_data(to_city=message.text)
+    city, suggestions = resolve_city(message.text)
+    if not city:
+        hint = f"Возможно, вы имели в виду: {', '.join(suggestions)}" if suggestions else "Введите город РФ."
+        await message.answer(f"❌ Город не найден. {hint}")
+        return
+    await state.update_data(to_city=city)
     await message.answer("Тип груза? (например: паллеты, сборный)")
     await state.set_state(CargoForm.cargo_type)
 
 @router.message(CargoForm.cargo_type)
 async def cargo_type(message: Message, state: FSMContext):
     await state.update_data(cargo_type=message.text)
-    await message.answer("Вес (тонн)?")
+    await message.answer("Вес (в тоннах)")
     await state.set_state(CargoForm.weight)
 
 @router.message(CargoForm.weight)
@@ -144,7 +193,7 @@ async def cargo_price(message: Message, state: FSMContext):
     try:
         price = int(message.text.replace(" ", ""))
         await state.update_data(price=price)
-        await message.answer("Дата загрузки? (ДД.ММ.ГГГГ или ДД.ММ)")
+        await message.answer("Дата загрузки (ДД.ММ.ГГГГ или ДД.ММ)")
         await state.set_state(CargoForm.load_date)
     except:
         await message.answer("❌ Введи число")
@@ -157,10 +206,10 @@ async def cargo_date(message: Message, state: FSMContext):
             text += f".{datetime.now().year}"
         load_date = datetime.strptime(text, "%d.%m.%Y")
         await state.update_data(load_date=load_date)
-        await message.answer("Комментарий? (или пропусти)", reply_markup=skip_kb())
+        await message.answer("Комментарий (можно пропустить)", reply_markup=skip_kb())
         await state.set_state(CargoForm.comment)
     except:
-        await message.answer("❌ Формат: ДД.ММ.ГГГГ")
+        await message.answer("❌ Формат даты: ДД.ММ.ГГГГ или ДД.ММ")
 
 @router.message(CargoForm.comment)
 async def cargo_comment(message: Message, state: FSMContext):
@@ -175,7 +224,7 @@ async def cargo_skip_comment(cb: CallbackQuery, state: FSMContext):
 
 async def show_confirm(message: Message, state: FSMContext):
     data = await state.get_data()
-    text = f"📦 <b>Подтверди груз:</b>\n\n"
+    text = f"📦 <b>Подтверди публикацию:</b>\n\n"
     text += f"📍 {data['from_city']} → {data['to_city']}\n"
     text += f"📦 {data['cargo_type']}\n"
     text += f"⚖️ {data['weight']} т\n"
@@ -223,17 +272,18 @@ async def cargo_confirm_yes(cb: CallbackQuery, state: FSMContext):
         subscribers = subs.scalars().all()
     
     await state.clear()
-    await cb.message.edit_text(f"✅ Груз #{cargo_id} создан!", reply_markup=main_menu())
+    await cb.message.edit_text(f"✅ Груз #{cargo_id} опубликован!", reply_markup=main_menu())
     
     for sub in subscribers:
         if sub.user_id != cb.from_user.id:
             try:
+                link = cargo_deeplink(cargo_id)
                 await bot.send_message(
                     sub.user_id,
                     f"🔔 Новый груз по твоему маршруту!\n\n"
                     f"📍 {data['from_city']} → {data['to_city']}\n"
                     f"⚖️ {data['weight']}т, 💰 {data['price']}₽\n"
-                    f"/cargo_{cargo_id}"
+                    f"{link}"
                 )
             except:
                 pass
@@ -253,38 +303,8 @@ async def show_cargo(message: Message):
         cargo_id = int(message.text.split("_")[1])
     except:
         return
-    
-    async with async_session() as session:
-        result = await session.execute(select(Cargo).where(Cargo.id == cargo_id))
-        cargo = result.scalar_one_or_none()
-        
-        if not cargo:
-            await message.answer("❌ Груз не найден")
-            return
-        
-        owner = await session.execute(select(User).where(User.id == cargo.owner_id))
-        owner = owner.scalar_one_or_none()
-    
-    status_map = {"new": "🆕 Новый", "in_progress": "🚚 В пути", "completed": "✅ Завершён", "cancelled": "❌ Отменён"}
-    
-    text = f"📦 <b>Груз #{cargo.id}</b>\n\n"
-    text += f"📍 {cargo.from_city} → {cargo.to_city}\n"
-    text += f"📦 {cargo.cargo_type}\n"
-    text += f"⚖️ {cargo.weight} т\n"
-    text += f"💰 {cargo.price} ₽\n"
-    text += f"📅 {cargo.load_date.strftime('%d.%m.%Y')}\n"
-    text += f"📊 {status_map.get(cargo.status.value, cargo.status.value)}\n"
-    if cargo.comment:
-        text += f"💬 {cargo.comment}\n"
-    text += f"\n👤 Заказчик: {owner.full_name if owner else 'N/A'}"
-    if owner and owner.phone:
-        text += f" ({owner.phone})"
-    
-    if cargo.status == CargoStatus.IN_PROGRESS:
-        text += f"\n\n🗺 Отслеживание: /track_{cargo.id}"
-    
-    is_owner = cargo.owner_id == message.from_user.id
-    await message.answer(text, reply_markup=cargo_actions(cargo.id, is_owner))
+
+    await send_cargo_details(message, cargo_id)
 
 @router.callback_query(F.data.startswith("respond_"))
 async def respond_cargo(cb: CallbackQuery):
@@ -308,10 +328,11 @@ async def respond_cargo(cb: CallbackQuery):
         cargo = cargo.scalar_one_or_none()
         
         if cargo:
+            link = cargo_deeplink(cargo_id)
             try:
                 await bot.send_message(
                     cargo.owner_id,
-                    f"📞 Новый отклик на груз #{cargo_id}!\n/cargo_{cargo_id}"
+                    f"📞 Новый отклик на груз #{cargo_id}!\n{link}"
                 )
             except:
                 pass
@@ -489,10 +510,10 @@ async def send_ttn(cb: CallbackQuery):
             carrier_result = await session.execute(select(User).where(User.id == cargo.carrier_id))
             carrier = carrier_result.scalar_one_or_none()
     
-    pdf_buffer = generate_ttn(cargo, owner, carrier)
+    pdf_bytes = generate_ttn(cargo, owner, carrier)
     
     await cb.message.answer_document(
-        BufferedInputFile(pdf_buffer.read(), filename=f"TTN_{cargo_id}.pdf"),
+        BufferedInputFile(pdf_bytes, filename=f"TTN_{cargo_id}.pdf"),
         caption=f"📄 ТТН для груза #{cargo_id}"
     )
     await cb.answer()

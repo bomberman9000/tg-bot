@@ -24,6 +24,7 @@ async def lifespan(app: FastAPI):
     from src.bot.handlers.chat import router as chat_router
     from src.bot.handlers.antifraud import router as antifraud_router
     from src.bot.handlers.geolocation import router as geolocation_router
+    from src.bot.handlers.inline import router as inline_router
     from src.bot.middlewares.logging import LoggingMiddleware
     
     logger.info("Starting bot...")
@@ -42,6 +43,7 @@ async def lifespan(app: FastAPI):
     dp.include_router(admin_router)
     dp.include_router(cargo_router)
     dp.include_router(search_router)
+    dp.include_router(inline_router)
     dp.include_router(rating_router)
     dp.include_router(profile_router)
     dp.include_router(analytics_router)

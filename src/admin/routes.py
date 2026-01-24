@@ -14,15 +14,18 @@ from src.core.models import User, Cargo, CargoStatus, Report, Rating, ChatMessag
 router = APIRouter(prefix="/admin", tags=["admin"])
 templates = Jinja2Templates(directory="src/admin/templates")
 
+def _ctx(request: Request, **kwargs):
+    return {"request": request, "bot_username": settings.bot_username, **kwargs}
+
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse("login.html", _ctx(request))
 
 @router.post("/login")
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):
     if username != settings.admin_username or not verify_password(password, ADMIN_PASSWORD_HASH):
         return templates.TemplateResponse("login.html", {
-            "request": request,
+            **_ctx(request),
             "error": "Неверный логин или пароль"
         })
     
@@ -74,7 +77,7 @@ async def dashboard(request: Request, admin: dict = Depends(get_current_admin)):
         recent_cargos = recent_cargos.scalars().all()
     
     return templates.TemplateResponse("dashboard.html", {
-        "request": request,
+        **_ctx(request),
         "admin": admin,
         "stats": {
             "users": users_count,
@@ -101,7 +104,7 @@ async def users_list(request: Request, admin: dict = Depends(get_current_admin),
         users = result.scalars().all()
     
     return templates.TemplateResponse("users.html", {
-        "request": request,
+        **_ctx(request),
         "admin": admin,
         "users": users,
         "page": page,
@@ -136,7 +139,7 @@ async def user_detail(request: Request, user_id: int, admin: dict = Depends(get_
         reports = reports.scalars().all()
     
     return templates.TemplateResponse("user_detail.html", {
-        "request": request,
+        **_ctx(request),
         "admin": admin,
         "user": user,
         "cargos": cargos,
@@ -185,7 +188,7 @@ async def cargos_list(request: Request, admin: dict = Depends(get_current_admin)
         cargos = result.scalars().all()
     
     return templates.TemplateResponse("cargos.html", {
-        "request": request,
+        **_ctx(request),
         "admin": admin,
         "cargos": cargos,
         "page": page,
@@ -215,7 +218,7 @@ async def reports_list(request: Request, admin: dict = Depends(get_current_admin
         users = {u.id: u for u in users_result.scalars().all()}
     
     return templates.TemplateResponse("reports.html", {
-        "request": request,
+        **_ctx(request),
         "admin": admin,
         "reports": reports,
         "users": users
@@ -240,7 +243,7 @@ async def feedback_list(request: Request, admin: dict = Depends(get_current_admi
         feedbacks = result.scalars().all()
     
     return templates.TemplateResponse("feedback.html", {
-        "request": request,
+        **_ctx(request),
         "admin": admin,
         "feedbacks": feedbacks
     })

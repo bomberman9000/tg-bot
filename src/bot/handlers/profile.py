@@ -4,23 +4,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select, func
 from src.bot.states import ProfileEdit
-from src.bot.keyboards import main_menu, skip_kb
+from src.bot.keyboards import main_menu, skip_kb, profile_menu
+from src.bot.utils import cargo_deeplink
 from src.core.database import async_session
 from src.core.models import User, Cargo, CargoStatus, Rating
 from src.core.logger import logger
 
 router = Router()
-
-def profile_menu():
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    from aiogram.types import InlineKeyboardButton
-    b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="📞 Изменить телефон", callback_data="edit_phone"))
-    b.row(InlineKeyboardButton(text="🏢 Изменить компанию", callback_data="edit_company"))
-    b.row(InlineKeyboardButton(text="📦 Мои грузы", callback_data="my_cargos"))
-    b.row(InlineKeyboardButton(text="📜 История", callback_data="history"))
-    b.row(InlineKeyboardButton(text="◀️ Меню", callback_data="menu"))
-    return b.as_markup()
 
 @router.callback_query(F.data == "profile")
 async def show_profile(cb: CallbackQuery):
@@ -134,8 +124,9 @@ async def show_history(cb: CallbackQuery):
     text = "📜 <b>История перевозок:</b>\n\n"
     for c in cargos:
         role = "📦" if c.owner_id == cb.from_user.id else "🚛"
+        link = cargo_deeplink(c.id)
         text += f"{role} {c.from_city} → {c.to_city}\n"
-        text += f"   {c.weight}т, {c.price}₽ — /cargo_{c.id}\n\n"
+        text += f"   {c.weight}т, {c.price}₽ — {link}\n\n"
     
     try:
         await cb.message.edit_text(text, reply_markup=profile_menu())
