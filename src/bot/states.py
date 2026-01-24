@@ -17,6 +17,7 @@ class CargoForm(StatesGroup):
 class CarrierRegister(StatesGroup):
     phone = State()
     confirm = State()
+
 class SearchCargo(StatesGroup):
     from_city = State()
     to_city = State()
@@ -24,15 +25,14 @@ class SearchCargo(StatesGroup):
 class SubscribeRoute(StatesGroup):
     from_city = State()
     to_city = State()
+
 class RateForm(StatesGroup):
     score = State()
     comment = State()
+
 class ProfileEdit(StatesGroup):
     phone = State()
     company = State()
 
-class CargoFilter(StatesGroup):
-    weight_min = State()
-    weight_max = State()
-    price_min = State()
-    price_max = State()
+class ChatForm(StatesGroup):
+    message = State()
