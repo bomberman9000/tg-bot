@@ -1,7 +1,6 @@
 from redis.asyncio import Redis
-from src.core.config import get_settings
+from src.core.config import settings
 
-settings = get_settings()
 redis_client: Redis | None = None
 
 async def get_redis() -> Redis:
