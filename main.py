@@ -22,6 +22,7 @@ async def lifespan(app: FastAPI):
     from src.bot.handlers.analytics import router as analytics_router
     from src.bot.handlers.chat import router as chat_router
     from src.bot.handlers.antifraud import router as antifraud_router
+    from src.bot.handlers.geolocation import router as geolocation_router
     from src.bot.middlewares.logging import LoggingMiddleware
     
     logger.info("Starting bot...")
@@ -45,6 +46,7 @@ async def lifespan(app: FastAPI):
     dp.include_router(analytics_router)
     dp.include_router(chat_router)
     dp.include_router(antifraud_router)
+    dp.include_router(geolocation_router)
     dp.include_router(start_router)
     dp.include_router(feedback_router)
     dp.include_router(errors_router)
@@ -69,7 +71,7 @@ async def health():
 @app.get("/api/stats")
 async def api_stats():
     from src.core.database import async_session
-    from src.core.models import User, Cargo, RouteSubscription, Report
+    from src.core.models import User, Cargo, Report
     from sqlalchemy import select, func
     
     async with async_session() as session:

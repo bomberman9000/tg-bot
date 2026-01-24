@@ -47,6 +47,7 @@ class Cargo(Base):
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     status: Mapped[CargoStatus] = mapped_column(Enum(CargoStatus), default=CargoStatus.NEW)
+    tracking_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 class CargoResponse(Base):
@@ -127,4 +128,15 @@ class Report(Base):
     report_type: Mapped[ReportType] = mapped_column(Enum(ReportType))
     description: Mapped[str] = mapped_column(Text)
     is_reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class CargoLocation(Base):
+    __tablename__ = "cargo_locations"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cargo_id: Mapped[int] = mapped_column(Integer)
+    user_id: Mapped[int] = mapped_column(BigInteger)
+    latitude: Mapped[float] = mapped_column(Float)
+    longitude: Mapped[float] = mapped_column(Float)
+    address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
