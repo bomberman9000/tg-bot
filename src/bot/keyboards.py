@@ -8,6 +8,7 @@ def main_menu():
     b.row(InlineKeyboardButton(text="🔔 Подписки", callback_data="subscriptions"))
     b.row(InlineKeyboardButton(text="📊 Аналитика", callback_data="analytics"))
     b.row(InlineKeyboardButton(text="💬 Сообщения", callback_data="messages"))
+    b.row(InlineKeyboardButton(text="🛡 Безопасность", callback_data="antifraud"))
     b.row(InlineKeyboardButton(text="👤 Профиль", callback_data="profile"))
     return b.as_markup()
 

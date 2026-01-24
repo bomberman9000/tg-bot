@@ -21,6 +21,7 @@ async def lifespan(app: FastAPI):
     from src.bot.handlers.profile import router as profile_router
     from src.bot.handlers.analytics import router as analytics_router
     from src.bot.handlers.chat import router as chat_router
+    from src.bot.handlers.antifraud import router as antifraud_router
     from src.bot.middlewares.logging import LoggingMiddleware
     
     logger.info("Starting bot...")
@@ -43,6 +44,7 @@ async def lifespan(app: FastAPI):
     dp.include_router(profile_router)
     dp.include_router(analytics_router)
     dp.include_router(chat_router)
+    dp.include_router(antifraud_router)
     dp.include_router(start_router)
     dp.include_router(feedback_router)
     dp.include_router(errors_router)
@@ -67,15 +69,15 @@ async def health():
 @app.get("/api/stats")
 async def api_stats():
     from src.core.database import async_session
-    from src.core.models import User, Cargo, RouteSubscription
+    from src.core.models import User, Cargo, RouteSubscription, Report
     from sqlalchemy import select, func
     
     async with async_session() as session:
         users = await session.scalar(select(func.count()).select_from(User))
         cargos = await session.scalar(select(func.count()).select_from(Cargo))
-        subs = await session.scalar(select(func.count()).select_from(RouteSubscription))
+        reports = await session.scalar(select(func.count()).select_from(Report))
     
-    return {"users": users, "cargos": cargos, "subscriptions": subs}
+    return {"users": users, "cargos": cargos, "reports": reports}
 
 @app.get("/api/cargos")
 async def api_cargos(from_city: str = None, to_city: str = None):

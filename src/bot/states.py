@@ -36,3 +36,12 @@ class ProfileEdit(StatesGroup):
 
 class ChatForm(StatesGroup):
     message = State()
+
+class VerifyForm(StatesGroup):
+    phone = State()
+    code = State()
+
+class ReportForm(StatesGroup):
+    user_id = State()
+    report_type = State()
+    description = State()

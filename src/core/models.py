@@ -15,7 +15,9 @@ class User(Base):
     is_carrier: Mapped[bool] = mapped_column(Boolean, default=False)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    rating_score: Mapped[float] = mapped_column(Float, default=0.0)
+    verification_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    trust_score: Mapped[int] = mapped_column(Integer, default=50)
+    warnings_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 class CargoStatus(enum.Enum):
@@ -106,4 +108,23 @@ class ChatMessage(Base):
     to_user_id: Mapped[int] = mapped_column(BigInteger)
     message: Mapped[str] = mapped_column(Text)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class ReportType(enum.Enum):
+    FRAUD = "fraud"
+    SPAM = "spam"
+    FAKE_CARGO = "fake_cargo"
+    NO_PAYMENT = "no_payment"
+    OTHER = "other"
+
+class Report(Base):
+    __tablename__ = "reports"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    from_user_id: Mapped[int] = mapped_column(BigInteger)
+    to_user_id: Mapped[int] = mapped_column(BigInteger)
+    cargo_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    report_type: Mapped[ReportType] = mapped_column(Enum(ReportType))
+    description: Mapped[str] = mapped_column(Text)
+    is_reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
