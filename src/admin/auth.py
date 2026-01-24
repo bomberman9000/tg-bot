@@ -1,21 +1,18 @@
 from datetime import datetime, timedelta
-from passlib.context import CryptContext
+from hashlib import sha256
 from jose import JWTError, jwt
-from fastapi import HTTPException, status, Depends, Request
-from fastapi.responses import RedirectResponse
+from fastapi import HTTPException, Request
 from src.core.config import settings
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 SECRET_KEY = settings.secret_key
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
+
+def hash_password(password: str) -> str:
+    return sha256(password.encode()).hexdigest()
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return hash_password(plain_password) == hashed_password
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
@@ -34,16 +31,15 @@ async def get_current_admin(request: Request):
     token = request.cookies.get("admin_token")
     if not token:
         raise HTTPException(
-            status_code=status.HTTP_302_FOUND,
+            status_code=302,
             headers={"Location": "/admin/login"}
         )
     payload = verify_token(token)
     if not payload:
         raise HTTPException(
-            status_code=status.HTTP_302_FOUND,
+            status_code=302,
             headers={"Location": "/admin/login"}
         )
     return payload
 
-# Pre-hash the admin password
-ADMIN_PASSWORD_HASH = get_password_hash(settings.admin_password)
+ADMIN_PASSWORD_HASH = hash_password(settings.admin_password)
