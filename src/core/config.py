@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = "admin123"
     secret_key: str = "your-secret-key-change-in-production"
+
+    # AI
+    groq_api_key: str | None = None
     
     class Config:
         env_file = ".env"

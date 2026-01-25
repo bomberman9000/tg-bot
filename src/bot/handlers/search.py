@@ -4,16 +4,27 @@ from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select, or_
 from src.bot.states import SearchCargo, SubscribeRoute
-from src.bot.keyboards import cargos_menu, subscriptions_menu, city_kb
+from src.bot.keyboards import cargos_menu, subscriptions_menu, city_kb, main_menu
 from src.bot.utils import cargo_deeplink
 from src.bot.utils.cities import city_suggest
+from src.core.ai import parse_city
 from src.core.database import async_session
 from src.core.models import Cargo, CargoStatus, RouteSubscription
 from src.core.logger import logger
+import re
 
 router = Router()
 
 CANCEL_HINT = "\n\n❌ Отмена: /cancel"
+STOP_WORDS = {"да", "ок", "okay", "привет", "hello", "hi", "угу", "ага"}
+
+def _looks_like_city(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t or t in STOP_WORDS:
+        return False
+    if len(t) < 3:
+        return False
+    return bool(re.search(r"[а-яА-Я]", t))
 
 @router.callback_query(F.data == "search_cargo")
 async def start_search(cb: CallbackQuery, state: FSMContext):
@@ -28,33 +39,34 @@ async def start_search(cb: CallbackQuery, state: FSMContext):
 
 @router.message(SearchCargo.from_city)
 async def search_from(message: Message, state: FSMContext):
-    suggestions = city_suggest(message.text)
-    if not suggestions:
-        await message.answer(
-            "Я жду город отправления. Начни ввод: «мос», «самар», «спб»."
-            + CANCEL_HINT,
-            reply_markup=city_kb([], "from"),
-        )
+    if message.text.lower() == "отмена":
+        await state.clear()
+        await message.answer("❌ Поиск отменён", reply_markup=main_menu())
         return
+
+    city = await parse_city(message.text)
+    await state.update_data(from_city=city)
     await message.answer(
-        "Выбери город отправления:" + CANCEL_HINT,
-        reply_markup=city_kb(suggestions, "from"),
+        f"✅ Откуда: <b>{city}</b>\n\n"
+        "Куда? (или 'любой')\n\n"
+        "<i>Отмена — напиши 'отмена'</i>"
     )
+    await state.set_state(SearchCargo.to_city)
 
 @router.message(SearchCargo.to_city)
 async def search_to(message: Message, state: FSMContext):
-    suggestions = city_suggest(message.text)
-    if not suggestions:
-        await message.answer(
-            "Я жду город назначения. Начни ввод: «мос», «самар», «спб»."
-            + CANCEL_HINT,
-            reply_markup=city_kb([], "to"),
-        )
+    if message.text.lower() == "отмена":
+        await state.clear()
+        await message.answer("❌ Поиск отменён", reply_markup=main_menu())
         return
-    await message.answer(
-        "Выбери город назначения:" + CANCEL_HINT,
-        reply_markup=city_kb(suggestions, "to"),
-    )
+
+    if message.text.lower() in ["любой", "все", "любое"]:
+        await state.update_data(to_city=None)
+    else:
+        city = await parse_city(message.text)
+        await state.update_data(to_city=city)
+
+    await do_search(message, state)
 
 @router.callback_query(SearchCargo.from_city, F.data.startswith("city:from:"))
 async def search_from_select(cb: CallbackQuery, state: FSMContext):
@@ -125,12 +137,17 @@ async def add_subscription(cb: CallbackQuery, state: FSMContext):
 async def sub_from(message: Message, state: FSMContext):
     suggestions = city_suggest(message.text)
     if not suggestions:
-        await message.answer(
-            "Я жду город отправления. Начни ввод: «мос», «самар», «спб»."
-            + CANCEL_HINT,
-            reply_markup=city_kb([], "from"),
-        )
-        return
+        if _looks_like_city(message.text):
+            parsed_city = await parse_city(message.text)
+            if parsed_city:
+                suggestions = [parsed_city]
+        if not suggestions:
+            await message.answer(
+                "Я жду город отправления. Начни ввод: «мос», «самар», «спб»."
+                + CANCEL_HINT,
+                reply_markup=city_kb([], "from"),
+            )
+            return
     await message.answer(
         "Выбери город отправления:" + CANCEL_HINT,
         reply_markup=city_kb(suggestions, "from"),
@@ -140,12 +157,17 @@ async def sub_from(message: Message, state: FSMContext):
 async def sub_to(message: Message, state: FSMContext):
     suggestions = city_suggest(message.text)
     if not suggestions:
-        await message.answer(
-            "Я жду город назначения. Начни ввод: «мос», «самар», «спб»."
-            + CANCEL_HINT,
-            reply_markup=city_kb([], "to"),
-        )
-        return
+        if _looks_like_city(message.text):
+            parsed_city = await parse_city(message.text)
+            if parsed_city:
+                suggestions = [parsed_city]
+        if not suggestions:
+            await message.answer(
+                "Я жду город назначения. Начни ввод: «мос», «самар», «спб»."
+                + CANCEL_HINT,
+                reply_markup=city_kb([], "to"),
+            )
+            return
     await message.answer(
         "Выбери город назначения:" + CANCEL_HINT,
         reply_markup=city_kb(suggestions, "to"),
