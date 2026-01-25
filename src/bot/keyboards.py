@@ -1,5 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from src.core.models import CargoStatus
 
 def main_menu():
     b = InlineKeyboardBuilder()
@@ -19,15 +20,24 @@ def confirm_kb():
     )
     return b.as_markup()
 
-def cargo_actions(cargo_id: int, is_owner: bool = False):
+def cargo_actions(cargo_id: int, is_owner: bool, status: CargoStatus):
     b = InlineKeyboardBuilder()
     if is_owner:
-        b.row(InlineKeyboardButton(text="📋 Отклики", callback_data=f"responses_{cargo_id}"))
+        b.row(InlineKeyboardButton(text="👥 Отклики", callback_data=f"responses_{cargo_id}"))
         b.row(InlineKeyboardButton(text="✅ Завершить", callback_data=f"complete_{cargo_id}"))
         b.row(InlineKeyboardButton(text="❌ Отменить", callback_data=f"cancel_{cargo_id}"))
+        if status == CargoStatus.NEW:
+            b.row(InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_{cargo_id}"))
     else:
-        b.row(InlineKeyboardButton(text="📞 Откликнуться", callback_data=f"respond_{cargo_id}"))
+        b.row(InlineKeyboardButton(text="📨 Откликнуться", callback_data=f"respond_{cargo_id}"))
+    b.row(InlineKeyboardButton(text="📄 ТТН", callback_data=f"ttn_{cargo_id}"))
     b.row(InlineKeyboardButton(text="◀️ Назад", callback_data="cargos"))
+    return b.as_markup()
+
+def delete_confirm_kb(cargo_id: int):
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"delete_yes_{cargo_id}"))
+    b.row(InlineKeyboardButton(text="❌ Нет", callback_data=f"delete_no_{cargo_id}"))
     return b.as_markup()
 
 def cargos_menu():

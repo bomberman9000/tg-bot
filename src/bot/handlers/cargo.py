@@ -6,7 +6,7 @@ from sqlalchemy import select, or_, func
 from datetime import datetime, timedelta
 import re
 from src.bot.states import CargoForm
-from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, skip_kb, response_actions, deal_actions, city_kb
+from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, skip_kb, response_actions, deal_actions, city_kb, delete_confirm_kb
 from src.bot.utils import cargo_deeplink
 from src.bot.utils.cities import city_suggest
 from src.core.ai import parse_city
@@ -38,6 +38,51 @@ def _verification_label(profile: UserProfile | None) -> str:
     if profile.verification_status == VerificationStatus.CONFIRMED:
         return "подтверждён"
     return "обычный"
+
+async def render_cargo_card(session, cargo: Cargo, viewer_id: int) -> tuple[str, bool]:
+    owner = await session.scalar(select(User).where(User.id == cargo.owner_id))
+    owner_profile = await session.scalar(select(UserProfile).where(UserProfile.user_id == cargo.owner_id))
+
+    avg_rating = await session.scalar(
+        select(func.avg(Rating.score)).where(Rating.to_user_id == cargo.owner_id)
+    )
+    rating_count = await session.scalar(
+        select(func.count()).select_from(Rating).where(Rating.to_user_id == cargo.owner_id)
+    )
+
+    status_map = {
+        "new": "🆕 Новый",
+        "in_progress": "🚚 В пути",
+        "completed": "✅ Завершён",
+        "cancelled": "❌ Отменён",
+    }
+
+    text = f"📦 <b>Груз #{cargo.id}</b>\n\n"
+    text += f"📍 {cargo.from_city} → {cargo.to_city}\n"
+    text += f"📦 {cargo.cargo_type}\n"
+    text += f"⚖️ {cargo.weight} т\n"
+    text += f"💰 {cargo.price} ₽\n"
+    text += f"📅 {cargo.load_date.strftime('%d.%m.%Y')}\n"
+    text += f"📊 {status_map.get(cargo.status.value, cargo.status.value)}\n"
+    if cargo.comment:
+        text += f"💬 {cargo.comment}\n"
+
+    is_owner = cargo.owner_id == viewer_id
+    is_carrier = cargo.carrier_id == viewer_id if cargo.carrier_id else False
+    is_participant = is_owner or is_carrier
+    can_show_contacts = is_participant and cargo.status in {CargoStatus.IN_PROGRESS, CargoStatus.COMPLETED}
+
+    if owner:
+        text += f"\n👤 Заказчик: {owner.full_name if owner.full_name else owner.id}"
+        if can_show_contacts and owner.phone:
+            text += f" ({owner.phone})"
+        else:
+            stars = "⭐" * round(avg_rating) if avg_rating else "нет оценок"
+            text += f"\n⭐ Рейтинг: {stars} ({rating_count or 0})"
+            text += f"\n🛡 Верификация: {_verification_label(owner_profile)}"
+            text += "\n📵 Контакты скрыты до начала сделки"
+
+    return text, is_owner
 
 
 
@@ -107,7 +152,7 @@ async def send_cargo_details(message: Message, cargo_id: int) -> bool:
     if cargo.status == CargoStatus.IN_PROGRESS and is_participant:
         reply_markup = deal_actions(cargo.id, is_owner)
     else:
-        reply_markup = cargo_actions(cargo.id, is_owner)
+        reply_markup = cargo_actions(cargo.id, is_owner, cargo.status)
 
     await message.answer(text, reply_markup=reply_markup)
     return True
@@ -503,7 +548,10 @@ async def show_responses(cb: CallbackQuery):
 
     header = f"📋 <b>Отклики на груз #{cargo_id}:</b>\n\n"
     try:
-        await cb.message.edit_text(header, reply_markup=cargo_actions(cargo_id, True))
+        await cb.message.edit_text(
+            header,
+            reply_markup=cargo_actions(cargo_id, True, cargo.status),
+        )
     except TelegramBadRequest:
         pass
 
@@ -702,6 +750,91 @@ async def cancel_cargo(cb: CallbackQuery):
     await cb.message.edit_text(f"❌ Груз #{cargo_id} отменён", reply_markup=main_menu())
     await cb.answer()
     logger.info(f"Cargo {cargo_id} cancelled")
+
+@router.callback_query(F.data.startswith("delete_yes_"))
+async def delete_cargo_yes(cb: CallbackQuery):
+    try:
+        cargo_id = int(cb.data.split("_")[2])
+    except:
+        await cb.answer("❌ Ошибка", show_alert=True)
+        return
+
+    async with async_session() as session:
+        cargo = await session.scalar(select(Cargo).where(Cargo.id == cargo_id))
+        if not cargo:
+            await cb.answer("Груз не найден", show_alert=True)
+            return
+        if cargo.owner_id != cb.from_user.id:
+            await cb.answer("Нет доступа", show_alert=True)
+            return
+        if cargo.status != CargoStatus.NEW:
+            await cb.answer("Нельзя удалить после начала сделки. Используй 'Отменить'.", show_alert=True)
+            return
+
+        await session.delete(cargo)
+        await session.commit()
+
+    try:
+        await cb.message.edit_text(f"🗑 Груз #{cargo_id} удалён", reply_markup=main_menu())
+    except TelegramBadRequest:
+        await cb.message.answer(f"🗑 Груз #{cargo_id} удалён", reply_markup=main_menu())
+    await cb.answer()
+    logger.info(f"Cargo {cargo_id} deleted")
+
+@router.callback_query(F.data.startswith("delete_no_"))
+async def delete_cargo_no(cb: CallbackQuery):
+    try:
+        cargo_id = int(cb.data.split("_")[2])
+    except:
+        await cb.answer("❌ Ошибка", show_alert=True)
+        return
+
+    async with async_session() as session:
+        cargo = await session.scalar(select(Cargo).where(Cargo.id == cargo_id))
+        if not cargo:
+            await cb.answer("Груз не найден", show_alert=True)
+            return
+
+        text, is_owner = await render_cargo_card(session, cargo, cb.from_user.id)
+
+    try:
+        await cb.message.edit_text(text, reply_markup=cargo_actions(cargo.id, is_owner, cargo.status))
+    except TelegramBadRequest:
+        await cb.message.answer(text, reply_markup=cargo_actions(cargo.id, is_owner, cargo.status))
+    await cb.answer()
+
+@router.callback_query(F.data.startswith("delete_"))
+async def delete_cargo_ask(cb: CallbackQuery):
+    if cb.data.startswith("delete_yes_") or cb.data.startswith("delete_no_"):
+        return
+
+    try:
+        cargo_id = int(cb.data.split("_")[1])
+    except:
+        await cb.answer("❌ Ошибка", show_alert=True)
+        return
+
+    async with async_session() as session:
+        cargo = await session.scalar(select(Cargo).where(Cargo.id == cargo_id))
+        if not cargo:
+            await cb.answer("Груз не найден", show_alert=True)
+            return
+        if cargo.owner_id != cb.from_user.id:
+            await cb.answer("Нет доступа", show_alert=True)
+            return
+        if cargo.status != CargoStatus.NEW:
+            await cb.answer("Нельзя удалить после начала сделки. Используй 'Отменить'.", show_alert=True)
+            return
+
+    text = (
+        f"🗑 <b>Удалить груз #{cargo_id}?</b>\n\n"
+        "Он исчезнет из базы. Это действие нельзя отменить."
+    )
+    try:
+        await cb.message.edit_text(text, reply_markup=delete_confirm_kb(cargo_id))
+    except TelegramBadRequest:
+        await cb.message.answer(text, reply_markup=delete_confirm_kb(cargo_id))
+    await cb.answer()
 
 @router.callback_query(F.data.startswith("ttn_"))
 async def send_ttn(cb: CallbackQuery):
