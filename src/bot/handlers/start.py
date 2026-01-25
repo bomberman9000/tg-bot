@@ -1,4 +1,3 @@
-
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery
@@ -31,11 +30,9 @@ async def cmd_start(message: Message, state: FSMContext):
         return
 
     await message.answer(
-        f"👋 Привет, <b>{message.from_user.full_name}</b>!
-
-"
-        f"Выбери действие в меню ниже.",
-        reply_markup=main_menu()
+        f"👋 Привет, <b>{message.from_user.full_name}</b>!\n\n"
+        "Выбери действие в меню ниже.",
+        reply_markup=main_menu(),
     )
 
 @router.callback_query(F.data == "menu")
@@ -49,34 +46,19 @@ async def show_menu(cb: CallbackQuery):
 @router.message(Command("help"))
 async def cmd_help(message: Message):
     await message.answer(
-        "📚 <b>Как пользоваться:</b>
-
-"
-        "Основные действия — через кнопки меню:
-"
-        "🚛 Найти груз
-"
-        "📦 Разместить груз
-"
-        "🧾 Мои грузы
-"
-        "🤝 Мои отклики
-"
-        "⭐ Рейтинг / Профиль
-"
-        "🆘 Поддержка
-
-"
-        "<b>Команды:</b>
-"
-        "/start — меню
-"
-        "/help — помощь
-"
-        "/me — мой профиль
-"
-        "/remind 30m Текст — напоминание
-"
+        "📚 <b>Как пользоваться:</b>\n\n"
+        "Основные действия — через кнопки меню:\n"
+        "🚛 Найти груз\n"
+        "📦 Разместить груз\n"
+        "🧾 Мои грузы\n"
+        "🤝 Мои отклики\n"
+        "⭐ Рейтинг / Профиль\n"
+        "🆘 Поддержка\n\n"
+        "<b>Команды:</b>\n"
+        "/start — меню\n"
+        "/help — помощь\n"
+        "/me — мой профиль\n"
+        "/remind 30m Текст — напоминание\n"
         "/reminders — мои напоминания"
     )
 
@@ -96,16 +78,10 @@ async def cmd_me(message: Message):
     if user:
         status = "🚫 Забанен" if user.is_banned else "✅ Активен"
         await message.answer(
-            f"👤 <b>Твой профиль:</b>
-
-"
-            f"🆔 ID: <code>{user.id}</code>
-"
-            f"📝 Имя: {user.full_name}
-"
-            f"📅 Регистрация: {user.created_at.strftime('%d.%m.%Y')}
-"
-            f"⏰ Напоминаний: {rem_count}
-"
+            "👤 <b>Твой профиль:</b>\n\n"
+            f"🆔 ID: <code>{user.id}</code>\n"
+            f"📝 Имя: {user.full_name}\n"
+            f"📅 Регистрация: {user.created_at.strftime('%d.%m.%Y')}\n"
+            f"⏰ Напоминаний: {rem_count}\n"
             f"Статус: {status}"
         )
