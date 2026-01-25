@@ -6,7 +6,7 @@ from sqlalchemy import select, or_, func
 from datetime import datetime, timedelta
 import re
 from src.bot.states import CargoForm
-from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, skip_kb, response_actions, deal_actions, city_kb, delete_confirm_kb
+from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, skip_kb, response_actions, deal_actions, city_kb, delete_confirm_kb, my_cargos_kb
 from src.bot.utils import cargo_deeplink
 from src.bot.utils.cities import city_suggest
 from src.core.ai import parse_city
@@ -198,10 +198,13 @@ async def all_cargos(cb: CallbackQuery):
 async def my_cargos(cb: CallbackQuery):
     async with async_session() as session:
         result = await session.execute(
-            select(Cargo).where(Cargo.owner_id == cb.from_user.id).limit(10)
+            select(Cargo)
+            .where(Cargo.owner_id == cb.from_user.id)
+            .order_by(Cargo.created_at.desc())
+            .limit(15)
         )
         cargos = result.scalars().all()
-    
+
     if not cargos:
         try:
             await cb.message.edit_text("📭 У тебя нет грузов", reply_markup=cargos_menu())
@@ -209,18 +212,34 @@ async def my_cargos(cb: CallbackQuery):
             pass
         await cb.answer()
         return
-    
-    text = "📦 <b>Мои грузы:</b>\n\n"
-    for c in cargos:
-        status_icon = {"new": "🆕", "in_progress": "🚚", "completed": "✅", "cancelled": "❌"}.get(c.status.value, "❓")
-        link = cargo_deeplink(c.id)
-        text += f"{status_icon} {c.from_city} → {c.to_city}\n"
-        text += f"   {c.weight}т, {c.price}₽ {link}\n\n"
-    
+
+    text = "📦 <b>Мои грузы</b>\n\nВыбери груз:"
     try:
-        await cb.message.edit_text(text, reply_markup=cargos_menu())
+        await cb.message.edit_text(text, reply_markup=my_cargos_kb(cargos))
     except TelegramBadRequest:
-        pass
+        await cb.message.answer(text, reply_markup=my_cargos_kb(cargos))
+    await cb.answer()
+
+@router.callback_query(F.data.startswith("cargo_open_"))
+async def cargo_open(cb: CallbackQuery):
+    try:
+        cargo_id = int(cb.data.split("_")[2])
+    except:
+        await cb.answer("❌ Ошибка", show_alert=True)
+        return
+
+    async with async_session() as session:
+        cargo = await session.scalar(select(Cargo).where(Cargo.id == cargo_id))
+        if not cargo:
+            await cb.answer("❌ Груз не найден", show_alert=True)
+            return
+
+        text, is_owner = await render_cargo_card(session, cargo, cb.from_user.id)
+
+    try:
+        await cb.message.edit_text(text, reply_markup=cargo_actions(cargo.id, is_owner, cargo.status))
+    except TelegramBadRequest:
+        await cb.message.answer(text, reply_markup=cargo_actions(cargo.id, is_owner, cargo.status))
     await cb.answer()
 
 @router.callback_query(F.data == "my_responses")

@@ -1,6 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from src.core.models import CargoStatus
+from src.core.models import CargoStatus, Cargo
 
 def main_menu():
     b = InlineKeyboardBuilder()
@@ -31,6 +31,14 @@ def cargo_actions(cargo_id: int, is_owner: bool, status: CargoStatus):
     else:
         b.row(InlineKeyboardButton(text="📨 Откликнуться", callback_data=f"respond_{cargo_id}"))
     b.row(InlineKeyboardButton(text="📄 ТТН", callback_data=f"ttn_{cargo_id}"))
+    b.row(InlineKeyboardButton(text="◀️ Назад", callback_data="cargos"))
+    return b.as_markup()
+
+def my_cargos_kb(cargos: list[Cargo]):
+    b = InlineKeyboardBuilder()
+    for c in cargos:
+        title = f"{c.from_city} → {c.to_city} | {c.weight}т | {c.price}₽"
+        b.row(InlineKeyboardButton(text=title[:64], callback_data=f"cargo_open_{c.id}"))
     b.row(InlineKeyboardButton(text="◀️ Назад", callback_data="cargos"))
     return b.as_markup()
 
