@@ -109,6 +109,16 @@ def contact_request_kb():
         keyboard=[[KeyboardButton(text="📲 Поделиться номером", request_contact=True)]]
     )
 
+def legal_type_kb():
+    return ReplyKeyboardMarkup(
+        resize_keyboard=True,
+        one_time_keyboard=True,
+        keyboard=[
+            [KeyboardButton(text="ИП"), KeyboardButton(text="ООО")],
+            [KeyboardButton(text="Физлицо")],
+        ],
+    )
+
 
 def deal_actions(cargo_id: int, is_owner: bool = False):
     b = InlineKeyboardBuilder()

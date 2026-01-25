@@ -50,6 +50,7 @@ class ReportForm(StatesGroup):
 class Onboarding(StatesGroup):
     role = State()
     contact = State()
+    legal_type = State()
     inn = State()
     company = State()
 
