@@ -1,4 +1,4 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def main_menu():
@@ -27,8 +27,6 @@ def cargo_actions(cargo_id: int, is_owner: bool = False):
         b.row(InlineKeyboardButton(text="❌ Отменить", callback_data=f"cancel_{cargo_id}"))
     else:
         b.row(InlineKeyboardButton(text="📞 Откликнуться", callback_data=f"respond_{cargo_id}"))
-        b.row(InlineKeyboardButton(text="💬 Написать", callback_data=f"chat_{cargo_id}"))
-    b.row(InlineKeyboardButton(text="📄 ТТН", callback_data=f"ttn_{cargo_id}"))
     b.row(InlineKeyboardButton(text="◀️ Назад", callback_data="cargos"))
     return b.as_markup()
 
@@ -54,7 +52,7 @@ def skip_kb():
 def response_actions(response_id: int):
     b = InlineKeyboardBuilder()
     b.row(
-        InlineKeyboardButton(text="✅ Принять", callback_data=f"accept_{response_id}"),
+        InlineKeyboardButton(text="✅ Выбрать", callback_data=f"accept_{response_id}"),
         InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{response_id}")
     )
     return b.as_markup()
@@ -79,6 +77,7 @@ def profile_menu():
     b = InlineKeyboardBuilder()
     b.row(InlineKeyboardButton(text="📞 Изменить телефон", callback_data="edit_phone"))
     b.row(InlineKeyboardButton(text="🏢 Изменить компанию", callback_data="edit_company"))
+    b.row(InlineKeyboardButton(text="✅ Пройти верификацию", callback_data="start_verification"))
     b.row(InlineKeyboardButton(text="💬 Сообщения", callback_data="messages"))
     b.row(InlineKeyboardButton(text="🔔 Подписки", callback_data="subscriptions"))
     b.row(InlineKeyboardButton(text="📊 Аналитика", callback_data="analytics"))
@@ -92,4 +91,31 @@ def chat_kb(cargo_id: int, user_id: int):
     b = InlineKeyboardBuilder()
     b.row(InlineKeyboardButton(text="✏️ Ответить", callback_data=f"reply_{cargo_id}_{user_id}"))
     b.row(InlineKeyboardButton(text="◀️ Назад", callback_data="messages"))
+    return b.as_markup()
+
+
+def role_kb():
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="Я заказчик", callback_data="role_customer"))
+    b.row(InlineKeyboardButton(text="Я перевозчик", callback_data="role_carrier"))
+    b.row(InlineKeyboardButton(text="Я экспедитор", callback_data="role_forwarder"))
+    return b.as_markup()
+
+
+def contact_request_kb():
+    return ReplyKeyboardMarkup(
+        resize_keyboard=True,
+        one_time_keyboard=True,
+        keyboard=[[KeyboardButton(text="📲 Поделиться номером", request_contact=True)]]
+    )
+
+
+def deal_actions(cargo_id: int, is_owner: bool = False):
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="🗺 Трекинг", callback_data=f"tracking_{cargo_id}"))
+    b.row(InlineKeyboardButton(text="💬 Чат", callback_data=f"chat_{cargo_id}"))
+    b.row(InlineKeyboardButton(text="📄 Документы", callback_data=f"ttn_{cargo_id}"))
+    if is_owner:
+        b.row(InlineKeyboardButton(text="✅ Завершить", callback_data=f"complete_{cargo_id}"))
+    b.row(InlineKeyboardButton(text="◀️ Назад", callback_data="cargos"))
     return b.as_markup()

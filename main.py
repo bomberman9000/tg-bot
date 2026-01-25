@@ -11,6 +11,8 @@ from src.core.scheduler import setup_scheduler, scheduler
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from src.bot.bot import bot, dp
+    from src.bot.handlers.onboarding import router as onboarding_router
+    from src.bot.handlers.verification import router as verification_router
     from src.bot.handlers.start import router as start_router
     from src.bot.handlers.feedback import router as feedback_router
     from src.bot.handlers.admin import router as admin_router
@@ -50,6 +52,8 @@ async def lifespan(app: FastAPI):
     dp.include_router(chat_router)
     dp.include_router(antifraud_router)
     dp.include_router(geolocation_router)
+    dp.include_router(onboarding_router)
+    dp.include_router(verification_router)
     dp.include_router(start_router)
     dp.include_router(feedback_router)
     dp.include_router(errors_router)

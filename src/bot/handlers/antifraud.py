@@ -7,7 +7,7 @@ from random import randint
 from src.bot.states import VerifyForm, ReportForm
 from src.bot.keyboards import main_menu, back_menu
 from src.core.database import async_session
-from src.core.models import User, Report, ReportType, Rating, Cargo, CargoStatus
+from src.core.models import User, Report, ReportType, Rating, Cargo, CargoStatus, UserProfile, VerificationStatus
 from src.core.config import settings
 from src.core.logger import logger
 from src.bot.bot import bot
@@ -124,6 +124,8 @@ async def show_trust_score(cb: CallbackQuery):
         avg_rating = await session.scalar(
             select(func.avg(Rating.score)).where(Rating.to_user_id == cb.from_user.id)
         )
+
+        profile = await session.scalar(select(UserProfile).where(UserProfile.user_id == cb.from_user.id))
         
         completed = await session.scalar(
             select(func.count()).select_from(Cargo)
@@ -150,7 +152,11 @@ async def show_trust_score(cb: CallbackQuery):
     text += f"Уровень: {level}\n"
     text += f"Баллы: {score}/100\n\n"
     text += f"<b>Факторы:</b>\n"
-    text += f"{'✅' if user.is_verified else '❌'} Верификация (+20)\n"
+    text += f"{'✅' if user.is_verified else '❌'} Верификация телефона (+20)\n"
+    if profile and profile.verification_status != VerificationStatus.BASIC:
+        text += f"✅ Верификация компании (+10)\n"
+    else:
+        text += f"❌ Верификация компании (+10)\n"
     text += f"⭐ Средний рейтинг: {round(avg_rating, 1) if avg_rating else 'нет'}\n"
     text += f"📦 Завершённых сделок: {completed}\n"
     text += f"⚠️ Жалоб на вас: {reports}\n"

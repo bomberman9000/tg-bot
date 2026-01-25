@@ -20,6 +20,34 @@ class User(Base):
     warnings_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+
+
+class UserRole(enum.Enum):
+    CUSTOMER = "customer"
+    CARRIER = "carrier"
+    FORWARDER = "forwarder"
+
+class VerificationStatus(enum.Enum):
+    BASIC = "basic"
+    CONFIRMED = "confirmed"
+    VERIFIED = "verified"
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.CUSTOMER)
+    inn: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    ogrn: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    director_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    verification_status: Mapped[VerificationStatus] = mapped_column(
+        Enum(VerificationStatus), default=VerificationStatus.BASIC
+    )
+    verification_doc_file_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class CargoStatus(enum.Enum):
     NEW = "new"
     ACTIVE = "active"

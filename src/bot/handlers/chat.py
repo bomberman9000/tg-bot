@@ -6,7 +6,7 @@ from sqlalchemy import select, or_, and_, desc
 from src.bot.states import ChatForm
 from src.bot.keyboards import main_menu, chat_kb, back_menu
 from src.core.database import async_session
-from src.core.models import ChatMessage, Cargo, User
+from src.core.models import ChatMessage, Cargo, CargoStatus, User
 from src.core.logger import logger
 from src.bot.bot import bot
 
@@ -73,8 +73,18 @@ async def start_chat(cb: CallbackQuery, state: FSMContext):
         if not cargo:
             await cb.answer("❌ Груз не найден", show_alert=True)
             return
+
+        is_owner = cargo.owner_id == cb.from_user.id
+        is_carrier = cargo.carrier_id == cb.from_user.id if cargo.carrier_id else False
+        if not (is_owner or is_carrier):
+            await cb.answer("❌ Нет доступа", show_alert=True)
+            return
+
+        if cargo.status not in (CargoStatus.IN_PROGRESS, CargoStatus.COMPLETED):
+            await cb.answer("🔒 Чат доступен после выбора перевозчика", show_alert=True)
+            return
         
-        if cargo.owner_id == cb.from_user.id:
+        if is_owner:
             to_user_id = cargo.carrier_id
         else:
             to_user_id = cargo.owner_id
@@ -96,9 +106,31 @@ async def start_chat_cmd(message: Message, state: FSMContext):
         to_user_id = int(parts[2])
     except:
         return
-    
+
+    async with async_session() as session:
+        result = await session.execute(select(Cargo).where(Cargo.id == cargo_id))
+        cargo = result.scalar_one_or_none()
+        if not cargo:
+            await message.answer("❌ Груз не найден")
+            return
+
+        is_owner = cargo.owner_id == message.from_user.id
+        is_carrier = cargo.carrier_id == message.from_user.id if cargo.carrier_id else False
+        if not (is_owner or is_carrier):
+            await message.answer("❌ Нет доступа")
+            return
+
+        if cargo.status not in (CargoStatus.IN_PROGRESS, CargoStatus.COMPLETED):
+            await message.answer("🔒 Чат доступен после выбора перевозчика")
+            return
+
+        other_id = cargo.carrier_id if is_owner else cargo.owner_id
+        if other_id != to_user_id:
+            await message.answer("❌ Некорректный чат")
+            return
+
     await state.update_data(cargo_id=cargo_id, to_user_id=to_user_id)
-    
+
     async with async_session() as session:
         result = await session.execute(
             select(ChatMessage)

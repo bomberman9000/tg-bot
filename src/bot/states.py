@@ -45,3 +45,16 @@ class ReportForm(StatesGroup):
     user_id = State()
     report_type = State()
     description = State()
+
+
+class Onboarding(StatesGroup):
+    role = State()
+    contact = State()
+    inn = State()
+    company = State()
+
+class LegalVerification(StatesGroup):
+    inn = State()
+    ogrn = State()
+    director = State()
+    doc = State()

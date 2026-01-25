@@ -1,14 +1,23 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_, and_
 from src.bot.states import RateForm
 from src.bot.keyboards import main_menu, skip_kb
 from src.core.database import async_session
-from src.core.models import Rating, Cargo, User
+from src.core.models import Rating, Cargo, CargoStatus, User, UserProfile, VerificationStatus
 from src.core.logger import logger
 
 router = Router()
+
+def _verification_label(profile: UserProfile | None) -> str:
+    if not profile:
+        return "обычный"
+    if profile.verification_status == VerificationStatus.VERIFIED:
+        return "верифицирован"
+    if profile.verification_status == VerificationStatus.CONFIRMED:
+        return "подтверждён"
+    return "обычный"
 
 @router.message(F.text.startswith("/rate_"))
 async def start_rate(message: Message, state: FSMContext):
@@ -115,6 +124,20 @@ async def view_user(message: Message):
         rating_count = await session.scalar(
             select(func.count()).select_from(Rating).where(Rating.to_user_id == user_id)
         )
+
+        profile = await session.scalar(select(UserProfile).where(UserProfile.user_id == user_id))
+
+        has_deal = await session.scalar(
+            select(func.count())
+            .select_from(Cargo)
+            .where(
+                Cargo.status.in_([CargoStatus.IN_PROGRESS, CargoStatus.COMPLETED]),
+                or_(
+                    and_(Cargo.owner_id == message.from_user.id, Cargo.carrier_id == user_id),
+                    and_(Cargo.owner_id == user_id, Cargo.carrier_id == message.from_user.id),
+                ),
+            )
+        )
     
     stars = "⭐" * round(avg_rating) if avg_rating else "нет оценок"
     
@@ -122,8 +145,12 @@ async def view_user(message: Message):
     text += f"🆔 <code>{user.id}</code>\n"
     if user.username:
         text += f"📱 @{user.username}\n"
-    if user.phone:
+    text += f"🛡 Верификация: {_verification_label(profile)}\n"
+    can_show_phone = user_id == message.from_user.id or bool(has_deal)
+    if can_show_phone and user.phone:
         text += f"📞 {user.phone}\n"
+    else:
+        text += "📞 Контакты скрыты до сделки\n"
     text += f"\n⭐ Рейтинг: {stars}\n"
     text += f"📊 Оценок: {rating_count}"
     

@@ -2,33 +2,66 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 from datetime import datetime, timedelta
 from src.bot.states import CargoForm
-from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, skip_kb, response_actions
+from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, skip_kb, response_actions, deal_actions
 from src.bot.utils import cargo_deeplink
 from src.core.database import async_session
 from src.core.cities import resolve_city
-from src.core.models import Cargo, CargoStatus, CargoResponse, User, RouteSubscription
+from src.core.models import Cargo, CargoStatus, CargoResponse, User, RouteSubscription, Rating, UserProfile, VerificationStatus
 from src.core.documents import generate_ttn
 from src.core.logger import logger
 from src.bot.bot import bot
 
 router = Router()
 
+
+def _verification_label(profile: UserProfile | None) -> str:
+    if not profile:
+        return "обычный"
+    if profile.verification_status == VerificationStatus.VERIFIED:
+        return "верифицирован"
+    if profile.verification_status == VerificationStatus.CONFIRMED:
+        return "подтверждён"
+    return "обычный"
+
+
+
+
 async def send_cargo_details(message: Message, cargo_id: int) -> bool:
     async with async_session() as session:
-        result = await session.execute(select(Cargo).where(Cargo.id == cargo_id))
-        cargo = result.scalar_one_or_none()
+        cargo = (await session.execute(select(Cargo).where(Cargo.id == cargo_id))).scalar_one_or_none()
 
         if not cargo:
             await message.answer("❌ Груз не найден")
             return False
 
-        owner = await session.execute(select(User).where(User.id == cargo.owner_id))
-        owner = owner.scalar_one_or_none()
+        owner = (await session.execute(select(User).where(User.id == cargo.owner_id))).scalar_one_or_none()
+        carrier = None
+        if cargo.carrier_id:
+            carrier = (await session.execute(select(User).where(User.id == cargo.carrier_id))).scalar_one_or_none()
 
-    status_map = {"new": "🆕 Новый", "in_progress": "🚚 В пути", "completed": "✅ Завершён", "cancelled": "❌ Отменён"}
+        owner_profile = await session.scalar(select(UserProfile).where(UserProfile.user_id == cargo.owner_id))
+
+        avg_rating = await session.scalar(
+            select(func.avg(Rating.score)).where(Rating.to_user_id == cargo.owner_id)
+        )
+        rating_count = await session.scalar(
+            select(func.count()).select_from(Rating).where(Rating.to_user_id == cargo.owner_id)
+        )
+
+    status_map = {
+        "new": "🆕 Новый",
+        "in_progress": "🚚 В пути",
+        "completed": "✅ Завершён",
+        "cancelled": "❌ Отменён",
+    }
+
+    is_owner = cargo.owner_id == message.from_user.id
+    is_carrier = cargo.carrier_id == message.from_user.id if cargo.carrier_id else False
+    is_participant = is_owner or is_carrier
+    can_show_contacts = is_participant and cargo.status in {CargoStatus.IN_PROGRESS, CargoStatus.COMPLETED}
 
     text = f"📦 <b>Груз #{cargo.id}</b>\n\n"
     text += f"📍 {cargo.from_city} → {cargo.to_city}\n"
@@ -39,15 +72,31 @@ async def send_cargo_details(message: Message, cargo_id: int) -> bool:
     text += f"📊 {status_map.get(cargo.status.value, cargo.status.value)}\n"
     if cargo.comment:
         text += f"💬 {cargo.comment}\n"
-    text += f"\n👤 Заказчик: {owner.full_name if owner else 'N/A'}"
-    if owner and owner.phone:
-        text += f" ({owner.phone})"
 
-    if cargo.status == CargoStatus.IN_PROGRESS:
-        text += f"\n\n🗺 Отслеживание: /track_{cargo.id}"
+    owner_name = owner.full_name if owner else "N/A"
+    text += f"\n👤 Заказчик: {owner_name}"
 
-    is_owner = cargo.owner_id == message.from_user.id
-    await message.answer(text, reply_markup=cargo_actions(cargo.id, is_owner))
+    if can_show_contacts and is_participant:
+        other = carrier if is_owner else owner
+        if other:
+            company = f" ({other.company})" if other.company else ""
+            phone = other.phone or "не указан"
+            text += f"\n📞 Контакты: {other.full_name}{company} — {phone}"
+    else:
+        stars = "⭐" * round(avg_rating) if avg_rating else "нет оценок"
+        text += f"\n⭐ Рейтинг: {stars} ({rating_count or 0})"
+        text += f"\n🛡 Верификация: {_verification_label(owner_profile)}"
+        text += "\n📞 Контакты доступны только участникам сделки"
+
+    if cargo.status == CargoStatus.IN_PROGRESS and is_participant:
+        text += "\n\n🗺 Трекинг доступен в меню сделки"
+
+    if cargo.status == CargoStatus.IN_PROGRESS and is_participant:
+        reply_markup = deal_actions(cargo.id, is_owner)
+    else:
+        reply_markup = cargo_actions(cargo.id, is_owner)
+
+    await message.answer(text, reply_markup=reply_markup)
     return True
 
 @router.callback_query(F.data == "cargos")
@@ -349,105 +398,194 @@ async def respond_cargo(cb: CallbackQuery):
     await cb.answer("✅ Отклик отправлен!", show_alert=True)
     logger.info(f"Response from {cb.from_user.id} to cargo {cargo_id}")
 
+
+
 @router.callback_query(F.data.startswith("responses_"))
 async def show_responses(cb: CallbackQuery):
     cargo_id = int(cb.data.split("_")[1])
-    
+
     async with async_session() as session:
-        result = await session.execute(
+        cargo = (await session.execute(select(Cargo).where(Cargo.id == cargo_id))).scalar_one_or_none()
+        if not cargo or cargo.owner_id != cb.from_user.id:
+            await cb.answer("❌ Нет доступа", show_alert=True)
+            return
+
+        responses_result = await session.execute(
             select(CargoResponse).where(CargoResponse.cargo_id == cargo_id)
         )
-        responses = result.scalars().all()
-    
-    if not responses:
-        await cb.answer("📭 Нет откликов", show_alert=True)
-        return
-    
-    text = f"📋 <b>Отклики на груз #{cargo_id}:</b>\n\n"
-    for r in responses:
-        async with async_session() as session:
-            user = await session.execute(select(User).where(User.id == r.carrier_id))
-            user = user.scalar_one_or_none()
-        
-        status = "⏳" if r.is_accepted is None else ("✅" if r.is_accepted else "❌")
-        name = user.full_name if user else f"ID:{r.carrier_id}"
-        text += f"{status} {name}\n"
-        if r.is_accepted is None:
-            text += f"   /accept_{r.id} | /reject_{r.id}\n"
-    
+        responses = responses_result.scalars().all()
+
+        if not responses:
+            await cb.answer("📭 Нет откликов", show_alert=True)
+            return
+
+        carrier_ids = [r.carrier_id for r in responses]
+        users_result = await session.execute(select(User).where(User.id.in_(carrier_ids)))
+        users = {u.id: u for u in users_result.scalars().all()}
+
+        profiles_result = await session.execute(
+            select(UserProfile).where(UserProfile.user_id.in_(carrier_ids))
+        )
+        profiles = {p.user_id: p for p in profiles_result.scalars().all()}
+
+        ratings_result = await session.execute(
+            select(Rating.to_user_id, func.avg(Rating.score), func.count())
+            .where(Rating.to_user_id.in_(carrier_ids))
+            .group_by(Rating.to_user_id)
+        )
+        ratings = {row[0]: (row[1], row[2]) for row in ratings_result.all()}
+
+    header = f"📋 <b>Отклики на груз #{cargo_id}:</b>\n\n"
     try:
-        await cb.message.edit_text(text, reply_markup=cargo_actions(cargo_id, True))
+        await cb.message.edit_text(header, reply_markup=cargo_actions(cargo_id, True))
     except TelegramBadRequest:
         pass
+
+    for response in responses:
+        user = users.get(response.carrier_id)
+        profile = profiles.get(response.carrier_id)
+        rating_avg, rating_count = ratings.get(response.carrier_id, (None, 0))
+        stars = "⭐" * round(rating_avg) if rating_avg else "нет оценок"
+        status = "⏳" if response.is_accepted is None else ("✅" if response.is_accepted else "❌")
+        name = user.full_name if user else f"ID:{response.carrier_id}"
+
+        text = f"{status} {name}\n"
+        text += f"⭐ Рейтинг: {stars} ({rating_count})\n"
+        text += f"🛡 Верификация: {_verification_label(profile)}\n"
+        if response.price_offer:
+            text += f"💰 Цена: {response.price_offer} ₽\n"
+        if response.comment:
+            text += f"💬 {response.comment}\n"
+
+        reply_markup = None
+        if response.is_accepted is None and cargo.status == CargoStatus.NEW:
+            reply_markup = response_actions(response.id)
+
+        await cb.message.answer(text, reply_markup=reply_markup)
+
     await cb.answer()
 
-@router.message(F.text.startswith("/accept_"))
-async def accept_response(message: Message):
+
+@router.callback_query(F.data.startswith("accept_"))
+async def accept_response_cb(cb: CallbackQuery):
     try:
-        response_id = int(message.text.split("_")[1])
+        response_id = int(cb.data.split("_")[1])
     except:
+        await cb.answer("❌ Некорректный отклик", show_alert=True)
         return
-    
+
     async with async_session() as session:
-        result = await session.execute(select(CargoResponse).where(CargoResponse.id == response_id))
-        response = result.scalar_one_or_none()
-        
+        response = (
+            await session.execute(select(CargoResponse).where(CargoResponse.id == response_id))
+        ).scalar_one_or_none()
         if not response:
-            await message.answer("❌ Отклик не найден")
+            await cb.answer("❌ Отклик не найден", show_alert=True)
             return
-        
-        cargo = await session.execute(select(Cargo).where(Cargo.id == response.cargo_id))
-        cargo = cargo.scalar_one_or_none()
-        
-        if cargo.owner_id != message.from_user.id:
-            await message.answer("❌ Нет доступа")
+
+        cargo = (
+            await session.execute(select(Cargo).where(Cargo.id == response.cargo_id))
+        ).scalar_one_or_none()
+        if not cargo or cargo.owner_id != cb.from_user.id:
+            await cb.answer("❌ Нет доступа", show_alert=True)
             return
-        
+
+        if cargo.status != CargoStatus.NEW:
+            await cb.answer("⚠️ Перевозчик уже выбран", show_alert=True)
+            return
+
         response.is_accepted = True
         cargo.carrier_id = response.carrier_id
         cargo.status = CargoStatus.IN_PROGRESS
-        await session.commit()
-        
-        try:
-            await bot.send_message(
-                response.carrier_id,
-                f"✅ Твой отклик на груз #{cargo.id} принят!\n\n"
-                f"📍 {cargo.from_city} → {cargo.to_city}\n"
-                f"🗺 Отслеживание: /track_{cargo.id}"
-            )
-        except:
-            pass
-    
-    await message.answer(f"✅ Перевозчик назначен на груз #{cargo.id}")
-    logger.info(f"Response {response_id} accepted")
 
-@router.message(F.text.startswith("/reject_"))
-async def reject_response(message: Message):
+        others = await session.execute(
+            select(CargoResponse).where(
+                CargoResponse.cargo_id == cargo.id,
+                CargoResponse.id != response_id,
+                CargoResponse.is_accepted.is_(None)
+            )
+        )
+        for other in others.scalars().all():
+            other.is_accepted = False
+
+        owner = (
+            await session.execute(select(User).where(User.id == cargo.owner_id))
+        ).scalar_one_or_none()
+        carrier = (
+            await session.execute(select(User).where(User.id == response.carrier_id))
+        ).scalar_one_or_none()
+
+        await session.commit()
+
+    owner_phone = owner.phone if owner else None
+    carrier_phone = carrier.phone if carrier else None
+
     try:
-        response_id = int(message.text.split("_")[1])
+        if carrier:
+            await bot.send_message(
+                carrier.id,
+                "✅ Ваш отклик принят. Сделка началась. Контакты открыты.\n\n"
+                f"Заказчик: {owner.full_name if owner else 'N/A'} — {owner_phone or 'телефон не указан'}\n"
+                "Доступные действия — в меню ниже.",
+                reply_markup=deal_actions(cargo.id, False)
+            )
     except:
+        pass
+
+    try:
+        if owner and carrier:
+            await bot.send_message(
+                owner.id,
+                "✅ Перевозчик выбран. Контакты открыты.\n\n"
+                f"Перевозчик: {carrier.full_name} — {carrier_phone or 'телефон не указан'}\n"
+                "Доступные действия — в меню ниже.",
+                reply_markup=deal_actions(cargo.id, True)
+            )
+    except:
+        pass
+
+    try:
+        await cb.message.edit_text(
+            "✅ Перевозчик выбран. Контакты открыты.",
+            reply_markup=deal_actions(cargo.id, True)
+        )
+    except TelegramBadRequest:
+        pass
+
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("reject_"))
+async def reject_response_cb(cb: CallbackQuery):
+    try:
+        response_id = int(cb.data.split("_")[1])
+    except:
+        await cb.answer("❌ Некорректный отклик", show_alert=True)
         return
-    
+
     async with async_session() as session:
-        result = await session.execute(select(CargoResponse).where(CargoResponse.id == response_id))
-        response = result.scalar_one_or_none()
-        
+        response = (
+            await session.execute(select(CargoResponse).where(CargoResponse.id == response_id))
+        ).scalar_one_or_none()
         if not response:
-            await message.answer("❌ Отклик не найден")
+            await cb.answer("❌ Отклик не найден", show_alert=True)
             return
-        
-        cargo = await session.execute(select(Cargo).where(Cargo.id == response.cargo_id))
-        cargo = cargo.scalar_one_or_none()
-        
-        if cargo.owner_id != message.from_user.id:
-            await message.answer("❌ Нет доступа")
+
+        cargo = (
+            await session.execute(select(Cargo).where(Cargo.id == response.cargo_id))
+        ).scalar_one_or_none()
+        if not cargo or cargo.owner_id != cb.from_user.id:
+            await cb.answer("❌ Нет доступа", show_alert=True)
             return
-        
+
         response.is_accepted = False
         await session.commit()
-    
-    await message.answer("❌ Отклик отклонён")
-    logger.info(f"Response {response_id} rejected")
+
+    try:
+        await cb.message.edit_text("❌ Отклик отклонён")
+    except TelegramBadRequest:
+        pass
+
+    await cb.answer()
 
 @router.callback_query(F.data.startswith("complete_"))
 async def complete_cargo(cb: CallbackQuery):
@@ -509,6 +647,16 @@ async def send_ttn(cb: CallbackQuery):
         
         if not cargo:
             await cb.answer("❌ Груз не найден", show_alert=True)
+            return
+
+        is_owner = cargo.owner_id == cb.from_user.id
+        is_carrier = cargo.carrier_id == cb.from_user.id if cargo.carrier_id else False
+        if not (is_owner or is_carrier):
+            await cb.answer("❌ Нет доступа", show_alert=True)
+            return
+
+        if cargo.status not in {CargoStatus.IN_PROGRESS, CargoStatus.COMPLETED}:
+            await cb.answer("🔒 Документы доступны после выбора перевозчика", show_alert=True)
             return
         
         owner = await session.execute(select(User).where(User.id == cargo.owner_id))
