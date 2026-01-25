@@ -4,41 +4,78 @@ from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select, or_
 from src.bot.states import SearchCargo, SubscribeRoute
-from src.bot.keyboards import cargos_menu, subscriptions_menu
+from src.bot.keyboards import cargos_menu, subscriptions_menu, city_kb
 from src.bot.utils import cargo_deeplink
+from src.bot.utils.cities import city_suggest
 from src.core.database import async_session
-from src.core.cities import resolve_city
 from src.core.models import Cargo, CargoStatus, RouteSubscription
 from src.core.logger import logger
 
 router = Router()
 
+CANCEL_HINT = "\n\n❌ Отмена: /cancel"
+
 @router.callback_query(F.data == "search_cargo")
 async def start_search(cb: CallbackQuery, state: FSMContext):
-    await cb.message.edit_text("🔍 Найдём груз\n\nОткуда отправка?")
+    await cb.message.edit_text(
+        "🔍 Найдём груз\n\n"
+        "Откуда? Начни вводить город (например: «самар», «мос», «спб»)"
+        + CANCEL_HINT,
+        reply_markup=city_kb([], "from"),
+    )
     await state.set_state(SearchCargo.from_city)
     await cb.answer()
 
 @router.message(SearchCargo.from_city)
 async def search_from(message: Message, state: FSMContext):
-    city, suggestions = resolve_city(message.text)
-    if not city:
-        hint = f"Возможно, вы имели в виду: {', '.join(suggestions)}" if suggestions else "Введите город РФ."
-        await message.answer(f"❌ Город не найден. {hint}")
+    suggestions = city_suggest(message.text)
+    if not suggestions:
+        await message.answer(
+            "Я жду город отправления. Начни ввод: «мос», «самар», «спб»."
+            + CANCEL_HINT,
+            reply_markup=city_kb([], "from"),
+        )
         return
-    await state.update_data(from_city=city)
-    await message.answer("Куда доставить?")
-    await state.set_state(SearchCargo.to_city)
+    await message.answer(
+        "Выбери город отправления:" + CANCEL_HINT,
+        reply_markup=city_kb(suggestions, "from"),
+    )
 
 @router.message(SearchCargo.to_city)
 async def search_to(message: Message, state: FSMContext):
-    city, suggestions = resolve_city(message.text)
-    if not city:
-        hint = f"Возможно, вы имели в виду: {', '.join(suggestions)}" if suggestions else "Введите город РФ."
-        await message.answer(f"❌ Город не найден. {hint}")
+    suggestions = city_suggest(message.text)
+    if not suggestions:
+        await message.answer(
+            "Я жду город назначения. Начни ввод: «мос», «самар», «спб»."
+            + CANCEL_HINT,
+            reply_markup=city_kb([], "to"),
+        )
         return
+    await message.answer(
+        "Выбери город назначения:" + CANCEL_HINT,
+        reply_markup=city_kb(suggestions, "to"),
+    )
+
+@router.callback_query(SearchCargo.from_city, F.data.startswith("city:from:"))
+async def search_from_select(cb: CallbackQuery, state: FSMContext):
+    _, _, city = cb.data.split(":", 2)
+    await state.update_data(from_city=city)
+    await state.set_state(SearchCargo.to_city)
+    await cb.message.edit_text(
+        f"✅ Выбрано: {city}\n\n"
+        "Куда доставить? Начни вводить город (например: «самар», «мос», «спб»)"
+        + CANCEL_HINT,
+        reply_markup=city_kb([], "to"),
+    )
+    await cb.answer()
+
+@router.callback_query(SearchCargo.to_city, F.data.startswith("city:to:"))
+async def search_to_select(cb: CallbackQuery, state: FSMContext):
+    _, _, city = cb.data.split(":", 2)
     await state.update_data(to_city=city)
-    await do_search(message, state)
+    await cb.message.edit_text(f"✅ Выбрано: {city}\n\nИщу грузы…")
+    await cb.answer()
+    await do_search(cb.message, state)
 
 async def do_search(message: Message, state: FSMContext):
     data = await state.get_data()
@@ -76,30 +113,64 @@ async def subscriptions_handler(cb: CallbackQuery):
 
 @router.callback_query(F.data == "add_subscription")
 async def add_subscription(cb: CallbackQuery, state: FSMContext):
-    await cb.message.edit_text("Откуда отправка?")
+    await cb.message.edit_text(
+        "Откуда? Начни вводить город (например: «самар», «мос», «спб»)"
+        + CANCEL_HINT,
+        reply_markup=city_kb([], "from"),
+    )
     await state.set_state(SubscribeRoute.from_city)
     await cb.answer()
 
 @router.message(SubscribeRoute.from_city)
 async def sub_from(message: Message, state: FSMContext):
-    city, suggestions = resolve_city(message.text)
-    if not city:
-        hint = f"Возможно, вы имели в виду: {', '.join(suggestions)}" if suggestions else "Введите город РФ."
-        await message.answer(f"❌ Город не найден. {hint}")
+    suggestions = city_suggest(message.text)
+    if not suggestions:
+        await message.answer(
+            "Я жду город отправления. Начни ввод: «мос», «самар», «спб»."
+            + CANCEL_HINT,
+            reply_markup=city_kb([], "from"),
+        )
         return
-    await state.update_data(from_city=city)
-    await message.answer("Куда доставить?")
-    await state.set_state(SubscribeRoute.to_city)
+    await message.answer(
+        "Выбери город отправления:" + CANCEL_HINT,
+        reply_markup=city_kb(suggestions, "from"),
+    )
 
 @router.message(SubscribeRoute.to_city)
 async def sub_to(message: Message, state: FSMContext):
-    city, suggestions = resolve_city(message.text)
-    if not city:
-        hint = f"Возможно, вы имели в виду: {', '.join(suggestions)}" if suggestions else "Введите город РФ."
-        await message.answer(f"❌ Город не найден. {hint}")
+    suggestions = city_suggest(message.text)
+    if not suggestions:
+        await message.answer(
+            "Я жду город назначения. Начни ввод: «мос», «самар», «спб»."
+            + CANCEL_HINT,
+            reply_markup=city_kb([], "to"),
+        )
         return
+    await message.answer(
+        "Выбери город назначения:" + CANCEL_HINT,
+        reply_markup=city_kb(suggestions, "to"),
+    )
+
+@router.callback_query(SubscribeRoute.from_city, F.data.startswith("city:from:"))
+async def sub_from_select(cb: CallbackQuery, state: FSMContext):
+    _, _, city = cb.data.split(":", 2)
+    await state.update_data(from_city=city)
+    await state.set_state(SubscribeRoute.to_city)
+    await cb.message.edit_text(
+        f"✅ Выбрано: {city}\n\n"
+        "Куда доставить? Начни вводить город (например: «самар», «мос», «спб»)"
+        + CANCEL_HINT,
+        reply_markup=city_kb([], "to"),
+    )
+    await cb.answer()
+
+@router.callback_query(SubscribeRoute.to_city, F.data.startswith("city:to:"))
+async def sub_to_select(cb: CallbackQuery, state: FSMContext):
+    _, _, city = cb.data.split(":", 2)
     await state.update_data(to_city=city)
-    await save_subscription(message, state)
+    await cb.message.edit_text(f"✅ Выбрано: {city}")
+    await cb.answer()
+    await save_subscription(cb.message, state)
 
 async def save_subscription(message: Message, state: FSMContext):
     data = await state.get_data()

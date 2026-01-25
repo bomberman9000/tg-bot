@@ -5,16 +5,18 @@ from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select, or_, func
 from datetime import datetime, timedelta
 from src.bot.states import CargoForm
-from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, skip_kb, response_actions, deal_actions
+from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, skip_kb, response_actions, deal_actions, city_kb
 from src.bot.utils import cargo_deeplink
+from src.bot.utils.cities import city_suggest
 from src.core.database import async_session
-from src.core.cities import resolve_city
 from src.core.models import Cargo, CargoStatus, CargoResponse, User, RouteSubscription, Rating, UserProfile, VerificationStatus
 from src.core.documents import generate_ttn
 from src.core.logger import logger
 from src.bot.bot import bot
 
 router = Router()
+
+CANCEL_HINT = "\n\n❌ Отмена: /cancel"
 
 
 def _verification_label(profile: UserProfile | None) -> str:
@@ -195,36 +197,73 @@ async def my_responses(cb: CallbackQuery):
 
 @router.callback_query(F.data == "add_cargo")
 async def add_cargo_start(cb: CallbackQuery, state: FSMContext):
-    await cb.message.edit_text("🚛 <b>Новый груз</b>\n\nОткуда отправка?")
+    await cb.message.edit_text(
+        "🚛 <b>Новый груз</b>\n\n"
+        "Откуда? Начни вводить город (например: «самар», «мос», «спб»)"
+        + CANCEL_HINT,
+        reply_markup=city_kb([], "from"),
+    )
     await state.set_state(CargoForm.from_city)
     await cb.answer()
 
 @router.message(CargoForm.from_city)
 async def cargo_from(message: Message, state: FSMContext):
-    city, suggestions = resolve_city(message.text)
-    if not city:
-        hint = f"Возможно, вы имели в виду: {', '.join(suggestions)}" if suggestions else "Введите город РФ."
-        await message.answer(f"❌ Город не найден. {hint}")
+    suggestions = city_suggest(message.text)
+    if not suggestions:
+        await message.answer(
+            "Я жду город отправления. Начни ввод: «мос», «самар», «спб»."
+            + CANCEL_HINT,
+            reply_markup=city_kb([], "from"),
+        )
         return
-    await state.update_data(from_city=city)
-    await message.answer("Куда доставить?")
-    await state.set_state(CargoForm.to_city)
+    await message.answer(
+        "Выбери город отправления:" + CANCEL_HINT,
+        reply_markup=city_kb(suggestions, "from"),
+    )
 
 @router.message(CargoForm.to_city)
 async def cargo_to(message: Message, state: FSMContext):
-    city, suggestions = resolve_city(message.text)
-    if not city:
-        hint = f"Возможно, вы имели в виду: {', '.join(suggestions)}" if suggestions else "Введите город РФ."
-        await message.answer(f"❌ Город не найден. {hint}")
+    suggestions = city_suggest(message.text)
+    if not suggestions:
+        await message.answer(
+            "Я жду город назначения. Начни ввод: «мос», «самар», «спб»."
+            + CANCEL_HINT,
+            reply_markup=city_kb([], "to"),
+        )
         return
+    await message.answer(
+        "Выбери город назначения:" + CANCEL_HINT,
+        reply_markup=city_kb(suggestions, "to"),
+    )
+
+@router.callback_query(CargoForm.from_city, F.data.startswith("city:from:"))
+async def cargo_from_select(cb: CallbackQuery, state: FSMContext):
+    _, _, city = cb.data.split(":", 2)
+    await state.update_data(from_city=city)
+    await state.set_state(CargoForm.to_city)
+    await cb.message.edit_text(
+        f"✅ Выбрано: {city}\n\n"
+        "Куда доставить? Начни вводить город (например: «самар», «мос», «спб»)"
+        + CANCEL_HINT,
+        reply_markup=city_kb([], "to"),
+    )
+    await cb.answer()
+
+@router.callback_query(CargoForm.to_city, F.data.startswith("city:to:"))
+async def cargo_to_select(cb: CallbackQuery, state: FSMContext):
+    _, _, city = cb.data.split(":", 2)
     await state.update_data(to_city=city)
-    await message.answer("Тип груза? (например: паллеты, сборный)")
     await state.set_state(CargoForm.cargo_type)
+    await cb.message.edit_text(
+        f"✅ Выбрано: {city}\n\n"
+        "Тип груза? (например: паллеты, сборный)" + CANCEL_HINT,
+    )
+    await cb.answer()
 
 @router.message(CargoForm.cargo_type)
 async def cargo_type(message: Message, state: FSMContext):
     await state.update_data(cargo_type=message.text)
-    await message.answer("Вес (в тоннах)")
+    await message.answer("Вес (в тоннах)" + CANCEL_HINT)
     await state.set_state(CargoForm.weight)
 
 @router.message(CargoForm.weight)
@@ -232,7 +271,7 @@ async def cargo_weight(message: Message, state: FSMContext):
     try:
         weight = float(message.text.replace(",", "."))
         await state.update_data(weight=weight)
-        await message.answer("Цена (₽)?")
+        await message.answer("Цена (₽)?" + CANCEL_HINT)
         await state.set_state(CargoForm.price)
     except:
         await message.answer("❌ Введи число")
@@ -242,7 +281,10 @@ async def cargo_price(message: Message, state: FSMContext):
     try:
         price = int(message.text.replace(" ", ""))
         await state.update_data(price=price)
-        await message.answer("Дата загрузки (сегодня/завтра/послезавтра или ДД.ММ[.ГГГГ])")
+        await message.answer(
+            "Дата загрузки (сегодня/завтра/послезавтра или ДД.ММ[.ГГГГ])"
+            + CANCEL_HINT
+        )
         await state.set_state(CargoForm.load_date)
     except:
         await message.answer("❌ Введи число")
@@ -264,7 +306,10 @@ async def cargo_date(message: Message, state: FSMContext):
                 text += f".{today.year}"
             load_date = datetime.strptime(text, "%d.%m.%Y")
         await state.update_data(load_date=load_date)
-        await message.answer("Комментарий (можно пропустить)", reply_markup=skip_kb())
+        await message.answer(
+            "Комментарий (можно пропустить)" + CANCEL_HINT,
+            reply_markup=skip_kb(),
+        )
         await state.set_state(CargoForm.comment)
     except:
         await message.answer("❌ Формат: сегодня/завтра/послезавтра или ДД.ММ[.ГГГГ]")

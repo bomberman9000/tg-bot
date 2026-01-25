@@ -119,6 +119,13 @@ def legal_type_kb():
         ],
     )
 
+def city_kb(cities: list[str], field: str):
+    b = InlineKeyboardBuilder()
+    for city in cities:
+        b.row(InlineKeyboardButton(text=city, callback_data=f"city:{field}:{city}"))
+    b.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel"))
+    return b.as_markup()
+
 
 def deal_actions(cargo_id: int, is_owner: bool = False):
     b = InlineKeyboardBuilder()
