@@ -6,7 +6,7 @@ from sqlalchemy import select, or_, func
 from datetime import datetime, timedelta
 import re
 from src.bot.states import CargoForm, EditCargo
-from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, skip_kb, response_actions, deal_actions, city_kb, delete_confirm_kb, my_cargos_kb, cargo_edit_kb
+from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, skip_kb, response_actions, deal_actions, city_kb, delete_confirm_kb, my_cargos_kb, cargo_edit_kb, price_suggest_kb
 from src.bot.utils import cargo_deeplink
 from src.bot.utils.cities import city_suggest
 from src.core.ai import parse_city
@@ -535,26 +535,72 @@ async def cargo_type(message: Message, state: FSMContext):
 
 @router.message(CargoForm.weight)
 async def cargo_weight(message: Message, state: FSMContext):
+    if message.text.lower() in ["/cancel", "отмена"]:
+        await state.clear()
+        await message.answer("❌ Отменено", reply_markup=main_menu())
+        return
+
     try:
-        weight = float(message.text.replace(",", "."))
-        await state.update_data(weight=weight)
-        await message.answer("Цена (₽)?" + CANCEL_HINT)
-        await state.set_state(CargoForm.price)
+        weight = float(message.text.replace(",", ".").replace(" ", ""))
     except:
-        await message.answer("❌ Введи число")
+        await message.answer("❌ Введи число. Пример: 20 или 5.5")
+        return
+
+    await state.update_data(weight=weight)
+    data = await state.get_data()
+
+    from_city = data.get("from_city")
+    to_city = data.get("to_city")
+    cargo_type = data.get("cargo_type", "тент")
+
+    from src.core.ai import estimate_price_smart
+    estimate = await estimate_price_smart(from_city, to_city, weight, cargo_type)
+
+    hint = ""
+    if estimate.get("price"):
+        hint = f"\n\n💡 <b>Рекомендуемая цена: {estimate['price']:,} ₽</b>\n"
+        hint += estimate["details"]
+        await state.update_data(suggested_price=estimate["price"])
+
+    await message.answer(
+        f"💰 Укажи цену (₽){hint}\n\n"
+        "Введи число или нажми кнопку:",
+        reply_markup=price_suggest_kb(estimate.get("price")),
+    )
+    await state.set_state(CargoForm.price)
 
 @router.message(CargoForm.price)
 async def cargo_price(message: Message, state: FSMContext):
+    if message.text.lower() in ["/cancel", "отмена"]:
+        await state.clear()
+        await message.answer("❌ Отменено", reply_markup=main_menu())
+        return
+
     try:
-        price = int(message.text.replace(" ", ""))
-        await state.update_data(price=price)
-        await message.answer(
-            "Дата загрузки (сегодня/завтра/послезавтра или ДД.ММ[.ГГГГ])"
-            + CANCEL_HINT
-        )
-        await state.set_state(CargoForm.load_date)
+        price = int(message.text.replace(" ", "").replace("₽", ""))
     except:
         await message.answer("❌ Введи число")
+        return
+
+    await state.update_data(price=price)
+    await message.answer(
+        "Дата загрузки (сегодня/завтра/послезавтра или ДД.ММ[.ГГГГ])"
+        + CANCEL_HINT
+    )
+    await state.set_state(CargoForm.load_date)
+
+@router.callback_query(F.data.startswith("use_price_"), CargoForm.price)
+async def use_suggested_price(cb: CallbackQuery, state: FSMContext):
+    price = int(cb.data.split("_")[2])
+    await state.update_data(price=price)
+
+    await cb.message.edit_text(
+        f"✅ Цена: {price:,} ₽\n\n"
+        "📅 Дата загрузки?\n\n"
+        "Формат: ДД.ММ.ГГГГ или 'завтра', 'послезавтра'"
+    )
+    await state.set_state(CargoForm.load_date)
+    await cb.answer()
 
 @router.message(CargoForm.load_date)
 async def cargo_date(message: Message, state: FSMContext):

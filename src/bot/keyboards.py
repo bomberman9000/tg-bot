@@ -78,6 +78,18 @@ def skip_kb():
     b.row(InlineKeyboardButton(text="⏭ Пропустить", callback_data="skip"))
     return b.as_markup()
 
+def price_suggest_kb(suggested_price: int | None = None):
+    b = InlineKeyboardBuilder()
+    if suggested_price:
+        b.row(
+            InlineKeyboardButton(
+                text=f"✅ {suggested_price:,} ₽ (рекомендуемая)",
+                callback_data=f"use_price_{suggested_price}",
+            )
+        )
+    b.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel"))
+    return b.as_markup()
+
 def response_actions(response_id: int):
     b = InlineKeyboardBuilder()
     b.row(

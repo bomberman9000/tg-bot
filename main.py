@@ -32,6 +32,15 @@ async def lifespan(app: FastAPI):
     
     await init_db()
     logger.info("Database initialized")
+
+    try:
+        from src.core.database import async_session
+        from src.core.market_data import seed_market_prices
+        async with async_session() as session:
+            await seed_market_prices(session)
+        logger.info("Market prices seeded")
+    except Exception as e:
+        logger.warning("Market prices seed failed: %s", e)
     
     redis = await get_redis()
     await redis.ping()

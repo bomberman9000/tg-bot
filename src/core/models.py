@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import BigInteger, String, DateTime, Boolean, Text, Integer, Float, Enum
+from sqlalchemy import BigInteger, String, DateTime, Boolean, Text, Integer, Float, Enum, Index
 from sqlalchemy.orm import Mapped, mapped_column
 from src.core.database import Base
 import enum
@@ -89,6 +89,22 @@ class CargoResponse(Base):
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_accepted: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class MarketPrice(Base):
+    __tablename__ = "market_prices"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    from_city: Mapped[str] = mapped_column(String(100))
+    to_city: Mapped[str] = mapped_column(String(100))
+    price: Mapped[int] = mapped_column()  # цена за 20 тонн без НДС
+    cargo_type: Mapped[str] = mapped_column(String(50), default="тент")  # тент, реф, изотерм
+    weight: Mapped[float] = mapped_column(default=20.0)  # базовый вес
+    source: Mapped[str] = mapped_column(String(100), default="umnayalogistika")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_market_route", "from_city", "to_city", "cargo_type", unique=True),
+    )
 
 class Feedback(Base):
     __tablename__ = "feedback"
