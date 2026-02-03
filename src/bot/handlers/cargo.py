@@ -5,8 +5,8 @@ from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select, or_, func
 from datetime import datetime, timedelta
 import re
-from src.bot.states import CargoForm
-from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, skip_kb, response_actions, deal_actions, city_kb, delete_confirm_kb, my_cargos_kb
+from src.bot.states import CargoForm, EditCargo
+from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, skip_kb, response_actions, deal_actions, city_kb, delete_confirm_kb, my_cargos_kb, cargo_edit_kb
 from src.bot.utils import cargo_deeplink
 from src.bot.utils.cities import city_suggest
 from src.core.ai import parse_city
@@ -62,7 +62,10 @@ async def render_cargo_card(session, cargo: Cargo, viewer_id: int) -> tuple[str,
     text += f"📦 {cargo.cargo_type}\n"
     text += f"⚖️ {cargo.weight} т\n"
     text += f"💰 {cargo.price} ₽\n"
-    text += f"📅 {cargo.load_date.strftime('%d.%m.%Y')}\n"
+    text += f"📅 {cargo.load_date.strftime('%d.%m.%Y')}"
+    if cargo.load_time:
+        text += f" в {cargo.load_time}"
+    text += "\n"
     text += f"📊 {status_map.get(cargo.status.value, cargo.status.value)}\n"
     if cargo.comment:
         text += f"💬 {cargo.comment}\n"
@@ -126,7 +129,10 @@ async def send_cargo_details(message: Message, cargo_id: int) -> bool:
     text += f"📦 {cargo.cargo_type}\n"
     text += f"⚖️ {cargo.weight} т\n"
     text += f"💰 {cargo.price} ₽\n"
-    text += f"📅 {cargo.load_date.strftime('%d.%m.%Y')}\n"
+    text += f"📅 {cargo.load_date.strftime('%d.%m.%Y')}"
+    if cargo.load_time:
+        text += f" в {cargo.load_time}"
+    text += "\n"
     text += f"📊 {status_map.get(cargo.status.value, cargo.status.value)}\n"
     if cargo.comment:
         text += f"💬 {cargo.comment}\n"
@@ -241,6 +247,182 @@ async def cargo_open(cb: CallbackQuery):
     except TelegramBadRequest:
         await cb.message.answer(text, reply_markup=cargo_actions(cargo.id, is_owner, cargo.status))
     await cb.answer()
+
+@router.callback_query(F.data.startswith("edit_cargo_"))
+async def edit_cargo_menu(cb: CallbackQuery):
+    cargo_id = int(cb.data.split("_")[2])
+
+    async with async_session() as session:
+        cargo = await session.scalar(select(Cargo).where(Cargo.id == cargo_id))
+        if not cargo or cargo.owner_id != cb.from_user.id:
+            await cb.answer("❌ Груз не найден или нет доступа", show_alert=True)
+            return
+        if cargo.status != CargoStatus.NEW:
+            await cb.answer("❌ Можно редактировать только новые грузы", show_alert=True)
+            return
+
+    await cb.message.edit_text(
+        f"✏️ <b>Редактирование груза #{cargo_id}</b>\n\nВыбери что изменить:",
+        reply_markup=cargo_edit_kb(cargo_id),
+    )
+    await cb.answer()
+
+@router.callback_query(F.data.startswith("edit_price_"))
+async def edit_price_start(cb: CallbackQuery, state: FSMContext):
+    cargo_id = int(cb.data.split("_")[2])
+    await state.update_data(edit_cargo_id=cargo_id)
+    await cb.message.edit_text("💰 Введи новую цену (₽):\n\n<i>Отмена — /cancel</i>")
+    await state.set_state(EditCargo.price)
+    await cb.answer()
+
+@router.message(EditCargo.price)
+async def edit_price_save(message: Message, state: FSMContext):
+    if message.text.lower() in ["/cancel", "отмена"]:
+        await state.clear()
+        await message.answer("❌ Отменено", reply_markup=main_menu())
+        return
+
+    try:
+        price = int(message.text.replace(" ", "").replace("₽", ""))
+    except:
+        await message.answer("❌ Введи число. Пример: 50000")
+        return
+
+    data = await state.get_data()
+    cargo_id = data.get("edit_cargo_id")
+
+    async with async_session() as session:
+        cargo = await session.scalar(select(Cargo).where(Cargo.id == cargo_id))
+        if cargo and cargo.owner_id == message.from_user.id:
+            cargo.price = price
+            await session.commit()
+            await message.answer(f"✅ Цена изменена на {price:,} ₽")
+        else:
+            await message.answer("❌ Груз не найден")
+
+    await state.clear()
+
+@router.callback_query(F.data.startswith("edit_date_"))
+async def edit_date_start(cb: CallbackQuery, state: FSMContext):
+    cargo_id = int(cb.data.split("_")[2])
+    await state.update_data(edit_cargo_id=cargo_id)
+    await cb.message.edit_text(
+        "📅 Введи новую дату загрузки:\n\n"
+        "Формат: ДД.ММ.ГГГГ или 'завтра', 'послезавтра'\n\n"
+        "<i>Отмена — /cancel</i>",
+    )
+    await state.set_state(EditCargo.date)
+    await cb.answer()
+
+@router.message(EditCargo.date)
+async def edit_date_save(message: Message, state: FSMContext):
+    if message.text.lower() in ["/cancel", "отмена"]:
+        await state.clear()
+        await message.answer("❌ Отменено", reply_markup=main_menu())
+        return
+
+    text = message.text.lower().strip()
+
+    if text == "сегодня":
+        load_date = datetime.now()
+    elif text == "завтра":
+        load_date = datetime.now() + timedelta(days=1)
+    elif text == "послезавтра":
+        load_date = datetime.now() + timedelta(days=2)
+    else:
+        try:
+            load_date = datetime.strptime(message.text, "%d.%m.%Y")
+        except:
+            await message.answer("❌ Неверный формат. Пример: 15.02.2026 или 'завтра'")
+            return
+
+    data = await state.get_data()
+    cargo_id = data.get("edit_cargo_id")
+
+    async with async_session() as session:
+        cargo = await session.scalar(select(Cargo).where(Cargo.id == cargo_id))
+        if cargo and cargo.owner_id == message.from_user.id:
+            cargo.load_date = load_date
+            await session.commit()
+            await message.answer(f"✅ Дата изменена на {load_date.strftime('%d.%m.%Y')}")
+        else:
+            await message.answer("❌ Груз не найден")
+
+    await state.clear()
+
+@router.callback_query(F.data.startswith("edit_time_"))
+async def edit_time_start(cb: CallbackQuery, state: FSMContext):
+    cargo_id = int(cb.data.split("_")[2])
+    await state.update_data(edit_cargo_id=cargo_id)
+    await cb.message.edit_text(
+        "🕐 Введи время загрузки:\n\n"
+        "Формат: ЧЧ:ММ (например 09:00 или 14:30)\n\n"
+        "<i>Отмена — /cancel</i>",
+    )
+    await state.set_state(EditCargo.time)
+    await cb.answer()
+
+@router.message(EditCargo.time)
+async def edit_time_save(message: Message, state: FSMContext):
+    if message.text.lower() in ["/cancel", "отмена"]:
+        await state.clear()
+        await message.answer("❌ Отменено", reply_markup=main_menu())
+        return
+
+    time_match = re.match(r"^(\d{1,2}):(\d{2})$", message.text.strip())
+    if not time_match:
+        await message.answer("❌ Неверный формат. Пример: 09:00 или 14:30")
+        return
+
+    hours, minutes = int(time_match.group(1)), int(time_match.group(2))
+    if hours > 23 or minutes > 59:
+        await message.answer("❌ Неверное время")
+        return
+
+    load_time = f"{hours:02d}:{minutes:02d}"
+
+    data = await state.get_data()
+    cargo_id = data.get("edit_cargo_id")
+
+    async with async_session() as session:
+        cargo = await session.scalar(select(Cargo).where(Cargo.id == cargo_id))
+        if cargo and cargo.owner_id == message.from_user.id:
+            cargo.load_time = load_time
+            await session.commit()
+            await message.answer(f"✅ Время загрузки: {load_time}")
+        else:
+            await message.answer("❌ Груз не найден")
+
+    await state.clear()
+
+@router.callback_query(F.data.startswith("edit_comment_"))
+async def edit_comment_start(cb: CallbackQuery, state: FSMContext):
+    cargo_id = int(cb.data.split("_")[2])
+    await state.update_data(edit_cargo_id=cargo_id)
+    await cb.message.edit_text("💬 Введи новый комментарий:\n\n<i>Отмена — /cancel</i>")
+    await state.set_state(EditCargo.comment)
+    await cb.answer()
+
+@router.message(EditCargo.comment)
+async def edit_comment_save(message: Message, state: FSMContext):
+    if message.text.lower() in ["/cancel", "отмена"]:
+        await state.clear()
+        await message.answer("❌ Отменено", reply_markup=main_menu())
+        return
+
+    data = await state.get_data()
+    cargo_id = data.get("edit_cargo_id")
+
+    async with async_session() as session:
+        cargo = await session.scalar(select(Cargo).where(Cargo.id == cargo_id))
+        if cargo and cargo.owner_id == message.from_user.id:
+            cargo.comment = message.text[:500]
+            await session.commit()
+            await message.answer("✅ Комментарий обновлён")
+        else:
+            await message.answer("❌ Груз не найден")
+
+    await state.clear()
 
 @router.callback_query(F.data == "my_responses")
 async def my_responses(cb: CallbackQuery):
@@ -392,12 +574,30 @@ async def cargo_date(message: Message, state: FSMContext):
             load_date = datetime.strptime(text, "%d.%m.%Y")
         await state.update_data(load_date=load_date)
         await message.answer(
-            "Комментарий (можно пропустить)" + CANCEL_HINT,
+            "🕐 Время загрузки? (ЧЧ:ММ)\n\nПропустить — нажми кнопку",
             reply_markup=skip_kb(),
         )
-        await state.set_state(CargoForm.comment)
+        await state.set_state(CargoForm.load_time)
     except:
         await message.answer("❌ Формат: сегодня/завтра/послезавтра или ДД.ММ[.ГГГГ]")
+
+@router.message(CargoForm.load_time)
+async def cargo_time(message: Message, state: FSMContext):
+    time_match = re.match(r"^(\d{1,2}):(\d{2})$", message.text.strip())
+    if time_match:
+        hours, minutes = int(time_match.group(1)), int(time_match.group(2))
+        if hours <= 23 and minutes <= 59:
+            load_time = f"{hours:02d}:{minutes:02d}"
+            await state.update_data(load_time=load_time)
+
+    await message.answer("💬 Комментарий?", reply_markup=skip_kb())
+    await state.set_state(CargoForm.comment)
+
+@router.callback_query(F.data == "skip", CargoForm.load_time)
+async def skip_time(cb: CallbackQuery, state: FSMContext):
+    await cb.message.edit_text("💬 Комментарий?", reply_markup=skip_kb())
+    await state.set_state(CargoForm.comment)
+    await cb.answer()
 
 @router.message(CargoForm.comment)
 async def cargo_comment(message: Message, state: FSMContext):
@@ -417,7 +617,10 @@ async def show_confirm(message: Message, state: FSMContext):
     text += f"📦 {data['cargo_type']}\n"
     text += f"⚖️ {data['weight']} т\n"
     text += f"💰 {data['price']} ₽\n"
-    text += f"📅 {data['load_date'].strftime('%d.%m.%Y')}\n"
+    text += f"📅 {data['load_date'].strftime('%d.%m.%Y')}"
+    if data.get("load_time"):
+        text += f" в {data['load_time']}"
+    text += "\n"
     if data.get('comment'):
         text += f"💬 {data['comment']}\n"
     await message.answer(text, reply_markup=confirm_kb())
@@ -436,6 +639,7 @@ async def cargo_confirm_yes(cb: CallbackQuery, state: FSMContext):
             weight=data['weight'],
             price=data['price'],
             load_date=data['load_date'],
+            load_time=data.get('load_time'),
             comment=data.get('comment')
         )
         session.add(cargo)

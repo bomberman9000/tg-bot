@@ -27,11 +27,22 @@ def cargo_actions(cargo_id: int, is_owner: bool, status: CargoStatus):
         b.row(InlineKeyboardButton(text="✅ Завершить", callback_data=f"complete_{cargo_id}"))
         b.row(InlineKeyboardButton(text="❌ Отменить", callback_data=f"cancel_{cargo_id}"))
         if status == CargoStatus.NEW:
+            b.row(InlineKeyboardButton(text="✏️ Редактировать", callback_data=f"edit_cargo_{cargo_id}"))
             b.row(InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delete_{cargo_id}"))
     else:
         b.row(InlineKeyboardButton(text="📨 Откликнуться", callback_data=f"respond_{cargo_id}"))
     b.row(InlineKeyboardButton(text="📄 ТТН", callback_data=f"ttn_{cargo_id}"))
     b.row(InlineKeyboardButton(text="◀️ Назад", callback_data="cargos"))
+    return b.as_markup()
+
+def cargo_edit_kb(cargo_id: int):
+    """Клавиатура выбора что редактировать"""
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="💰 Цена", callback_data=f"edit_price_{cargo_id}"))
+    b.row(InlineKeyboardButton(text="📅 Дата загрузки", callback_data=f"edit_date_{cargo_id}"))
+    b.row(InlineKeyboardButton(text="🕐 Время загрузки", callback_data=f"edit_time_{cargo_id}"))
+    b.row(InlineKeyboardButton(text="💬 Комментарий", callback_data=f"edit_comment_{cargo_id}"))
+    b.row(InlineKeyboardButton(text="◀️ Назад", callback_data=f"cargo_open_{cargo_id}"))
     return b.as_markup()
 
 def my_cargos_kb(cargos: list[Cargo]):

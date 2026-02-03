@@ -11,6 +11,7 @@ class CargoForm(StatesGroup):
     weight = State()
     price = State()
     load_date = State()
+    load_time = State()
     comment = State()
     confirm = State()
 
@@ -45,6 +46,12 @@ class ReportForm(StatesGroup):
     user_id = State()
     report_type = State()
     description = State()
+
+class EditCargo(StatesGroup):
+    price = State()
+    date = State()
+    time = State()
+    comment = State()
 
 
 class Onboarding(StatesGroup):

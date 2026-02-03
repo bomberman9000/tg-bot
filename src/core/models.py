@@ -72,6 +72,7 @@ class Cargo(Base):
     price: Mapped[int] = mapped_column(Integer)
     actual_price: Mapped[int | None] = mapped_column(Integer, nullable=True)
     load_date: Mapped[datetime] = mapped_column(DateTime)
+    load_time: Mapped[str | None] = mapped_column(String(10), nullable=True)  # формат "HH:MM"
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     status: Mapped[CargoStatus] = mapped_column(Enum(CargoStatus), default=CargoStatus.NEW)
