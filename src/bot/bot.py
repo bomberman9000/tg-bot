@@ -35,5 +35,28 @@ async def _inaccessible_answer(self, text: str, **kwargs):
     except TelegramBadRequest:
         return None
 
-InaccessibleMessage.edit_text = _inaccessible_edit_text
-InaccessibleMessage.answer = _inaccessible_answer
+def _patch_inaccessible_message():
+    candidates = []
+    try:
+        candidates.append(InaccessibleMessage)
+    except Exception:
+        pass
+    try:
+        from aiogram.types.inaccessible_message import InaccessibleMessage as Inacc2
+        candidates.append(Inacc2)
+    except Exception:
+        pass
+    try:
+        from aiogram.types.message import InaccessibleMessage as Inacc3
+        candidates.append(Inacc3)
+    except Exception:
+        pass
+
+    for cls in candidates:
+        try:
+            cls.edit_text = _inaccessible_edit_text
+            cls.answer = _inaccessible_answer
+        except Exception:
+            pass
+
+_patch_inaccessible_message()
