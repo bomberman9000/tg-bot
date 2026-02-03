@@ -1,5 +1,6 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select, func
@@ -131,7 +132,7 @@ async def show_history(cb: CallbackQuery):
             .where(
                 (Cargo.owner_id == cb.from_user.id) | (Cargo.carrier_id == cb.from_user.id)
             )
-            .where(Cargo.status == CargoStatus.COMPLETED)
+            .where(Cargo.status.in_([CargoStatus.COMPLETED, CargoStatus.CANCELLED, CargoStatus.ARCHIVED]))
             .order_by(Cargo.created_at.desc())
             .limit(10)
         )
@@ -145,15 +146,31 @@ async def show_history(cb: CallbackQuery):
         await cb.answer()
         return
     
-    text = "📜 <b>История перевозок:</b>\n\n"
+    header = "📜 <b>История перевозок:</b>\n\n"
+    try:
+        await cb.message.edit_text(header, reply_markup=profile_menu())
+    except TelegramBadRequest:
+        pass
+
     for c in cargos:
         role = "📦" if c.owner_id == cb.from_user.id else "🚛"
         link = cargo_deeplink(c.id)
-        text += f"{role} {c.from_city} → {c.to_city}\n"
-        text += f"   {c.weight}т, {c.price}₽ — {link}\n\n"
-    
-    try:
-        await cb.message.edit_text(text, reply_markup=profile_menu())
-    except TelegramBadRequest:
-        pass
+        status = {
+            CargoStatus.COMPLETED: "✅ Завершён",
+            CargoStatus.CANCELLED: "❌ Отменён",
+            CargoStatus.ARCHIVED: "🗄 Архив",
+        }.get(c.status, c.status.value)
+
+        text = f"{role} {c.from_city} → {c.to_city}\n"
+        text += f"   {c.weight}т, {c.price}₽ — {status}\n"
+        text += f"   {link}\n"
+
+        reply_markup = None
+        if c.status == CargoStatus.ARCHIVED and c.owner_id == cb.from_user.id:
+            b = InlineKeyboardBuilder()
+            b.row(InlineKeyboardButton(text="♻️ Восстановить", callback_data=f"restore_cargo_{c.id}"))
+            reply_markup = b.as_markup()
+
+        await cb.message.answer(text, reply_markup=reply_markup)
+
     await cb.answer()

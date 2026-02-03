@@ -53,8 +53,29 @@ async def check_reminders_job():
         
         await session.commit()
 
+async def archive_old_cargos_job():
+    from src.core.database import async_session
+    from src.core.models import Cargo, CargoStatus
+
+    cutoff = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    async with async_session() as session:
+        result = await session.execute(
+            select(Cargo)
+            .where(Cargo.status == CargoStatus.NEW)
+            .where(Cargo.load_date < cutoff)
+        )
+        cargos = result.scalars().all()
+
+        for cargo in cargos:
+            cargo.status = CargoStatus.ARCHIVED
+
+        if cargos:
+            await session.commit()
+            logger.info("Archived cargos: %s", len(cargos))
+
 def setup_scheduler():
     scheduler.add_job(daily_stats_job, CronTrigger(hour=9, minute=0), id="daily_stats")
     scheduler.add_job(check_reminders_job, IntervalTrigger(seconds=30), id="check_reminders")
+    scheduler.add_job(archive_old_cargos_job, CronTrigger(hour=0, minute=10), id="archive_cargos")
     scheduler.start()
     logger.info("Scheduler started")

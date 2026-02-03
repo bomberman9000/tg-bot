@@ -36,11 +36,17 @@ async def lifespan(app: FastAPI):
     try:
         from src.core.database import async_session
         from src.core.market_data import seed_market_prices
+        from src.core.scheduler import archive_old_cargos_job
         async with async_session() as session:
             await seed_market_prices(session)
         logger.info("Market prices seeded")
     except Exception as e:
         logger.warning("Market prices seed failed: %s", e)
+
+    try:
+        await archive_old_cargos_job()
+    except Exception as e:
+        logger.warning("Archive old cargos failed: %s", e)
     
     redis = await get_redis()
     await redis.ping()

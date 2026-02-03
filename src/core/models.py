@@ -54,6 +54,7 @@ class CargoStatus(enum.Enum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
+    ARCHIVED = "archived"
 
 class Cargo(Base):
     __tablename__ = "cargos"

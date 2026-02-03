@@ -55,6 +55,8 @@ async def render_cargo_card(session, cargo: Cargo, viewer_id: int) -> tuple[str,
         "in_progress": "🚚 В пути",
         "completed": "✅ Завершён",
         "cancelled": "❌ Отменён",
+        "archived": "🗄 Архив",
+        "active": "✅ Активный",
     }
 
     text = f"📦 <b>Груз #{cargo.id}</b>\n\n"
@@ -117,6 +119,8 @@ async def send_cargo_details(message: Message, cargo_id: int) -> bool:
         "in_progress": "🚚 В пути",
         "completed": "✅ Завершён",
         "cancelled": "❌ Отменён",
+        "archived": "🗄 Архив",
+        "active": "✅ Активный",
     }
 
     is_owner = cargo.owner_id == message.from_user.id
@@ -206,6 +210,7 @@ async def my_cargos(cb: CallbackQuery):
         result = await session.execute(
             select(Cargo)
             .where(Cargo.owner_id == cb.from_user.id)
+            .where(Cargo.status.in_([CargoStatus.NEW, CargoStatus.IN_PROGRESS, CargoStatus.ACTIVE]))
             .order_by(Cargo.created_at.desc())
             .limit(15)
         )
@@ -423,6 +428,78 @@ async def edit_comment_save(message: Message, state: FSMContext):
             await message.answer("❌ Груз не найден")
 
     await state.clear()
+
+@router.callback_query(F.data.startswith("restore_cargo_"))
+async def restore_cargo(cb: CallbackQuery):
+    try:
+        cargo_id = int(cb.data.split("_")[2])
+    except:
+        await cb.answer("❌ Ошибка", show_alert=True)
+        return
+
+    async with async_session() as session:
+        cargo = await session.scalar(select(Cargo).where(Cargo.id == cargo_id))
+        if not cargo or cargo.owner_id != cb.from_user.id:
+            await cb.answer("❌ Груз не найден или нет доступа", show_alert=True)
+            return
+        if cargo.status != CargoStatus.ARCHIVED:
+            await cb.answer("❌ Можно восстановить только архивные грузы", show_alert=True)
+            return
+
+        restored = Cargo(
+            owner_id=cargo.owner_id,
+            carrier_id=None,
+            from_city=cargo.from_city,
+            to_city=cargo.to_city,
+            cargo_type=cargo.cargo_type,
+            weight=cargo.weight,
+            volume=cargo.volume,
+            price=cargo.price,
+            actual_price=None,
+            load_date=datetime.now(),
+            load_time=cargo.load_time,
+            comment=cargo.comment,
+            status=CargoStatus.NEW,
+            tracking_enabled=False,
+        )
+        session.add(restored)
+        await session.commit()
+        new_id = restored.id
+
+        subs = await session.execute(
+            select(RouteSubscription).where(
+                RouteSubscription.is_active == True
+            ).where(
+                or_(
+                    RouteSubscription.from_city.is_(None),
+                    RouteSubscription.from_city.ilike(f"%{cargo.from_city}%")
+                )
+            ).where(
+                or_(
+                    RouteSubscription.to_city.is_(None),
+                    RouteSubscription.to_city.ilike(f"%{cargo.to_city}%")
+                )
+            )
+        )
+        subscribers = subs.scalars().all()
+
+    for sub in subscribers:
+        if sub.user_id != cb.from_user.id:
+            try:
+                link = cargo_deeplink(new_id)
+                await bot.send_message(
+                    sub.user_id,
+                    f"🔔 Новый груз по твоему маршруту!\n\n"
+                    f"📍 {cargo.from_city} → {cargo.to_city}\n"
+                    f"⚖️ {cargo.weight}т, 💰 {cargo.price}₽\n"
+                    f"{link}"
+                )
+            except:
+                pass
+
+    await cb.message.answer(f"✅ Груз восстановлен как #{new_id}")
+    await send_cargo_details(cb.message, new_id)
+    await cb.answer()
 
 @router.callback_query(F.data == "my_responses")
 async def my_responses(cb: CallbackQuery):
