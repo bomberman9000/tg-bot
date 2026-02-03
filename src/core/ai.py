@@ -196,9 +196,9 @@ def _parse_search_simple(text: str) -> dict | None:
         if idx != -1:
             prefix = text_lower[max(0, idx - 12):idx]
             role = None
-            if re.search(r"(из|от)\\s+$", prefix):
+            if re.search(r"(из|от)\s+$", prefix):
                 role = "from"
-            elif re.search(r"(в|до|к)\\s+$", prefix):
+            elif re.search(r"(в|до|к)\s+$", prefix):
                 role = "to"
             matches.append((idx, city, role))
 
@@ -221,29 +221,29 @@ def _parse_search_simple(text: str) -> dict | None:
             result["to_city"] = city
             break
 
-    weight_match = re.search(r"(\\d+(?:[.,]\\d+)?)\\s*[-–]\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:т|тонн)", text_lower)
+    weight_match = re.search(r"(\d+(?:[.,]\d+)?)\s*[-–]\s*(\d+(?:[.,]\d+)?)\s*(?:т|тонн)", text_lower)
     if weight_match:
         result["min_weight"] = float(weight_match.group(1).replace(",", "."))
         result["max_weight"] = float(weight_match.group(2).replace(",", "."))
     else:
-        w_from = re.search(r"от\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:т|тонн)", text_lower)
-        w_to = re.search(r"до\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:т|тонн)", text_lower)
+        w_from = re.search(r"от\s*(\d+(?:[.,]\d+)?)\s*(?:т|тонн)", text_lower)
+        w_to = re.search(r"до\s*(\d+(?:[.,]\d+)?)\s*(?:т|тонн)", text_lower)
         if w_from:
             result["min_weight"] = float(w_from.group(1).replace(",", "."))
         if w_to:
             result["max_weight"] = float(w_to.group(1).replace(",", "."))
         if not w_from and not w_to:
-            weight_match = re.search(r"(\\d+(?:[.,]\\d+)?)\\s*(?:т|тонн)", text_lower)
+            weight_match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:т|тонн)", text_lower)
             if weight_match:
                 w = float(weight_match.group(1).replace(",", "."))
                 result["min_weight"] = w
                 result["max_weight"] = w
 
-    price_match = re.search(r"до\\s*(\\d+(?:[.,]\\d+)?)\\s*к", text_lower)
+    price_match = re.search(r"до\s*(\d+(?:[.,]\d+)?)\s*к", text_lower)
     if price_match:
         result["max_price"] = int(float(price_match.group(1).replace(",", ".")) * 1000)
     else:
-        price_match = re.search(r"до\\s*(\\d{4,})", text_lower)
+        price_match = re.search(r"до\s*(\d{4,})", text_lower)
         if price_match:
             result["max_price"] = int(price_match.group(1))
 
@@ -286,8 +286,8 @@ def _normalize_city_key(text: str) -> str:
         return ""
     t = t.replace("ё", "е")
     t = t.replace("-", " ")
-    t = re.sub(r"[^0-9a-zа-я\\s]", " ", t)
-    t = re.sub(r"\\s+", " ", t).strip()
+    t = re.sub(r"[^0-9a-zа-я\s]", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
     return t
 
 CITY_COORDS: dict[str, tuple[float, float]] = {
