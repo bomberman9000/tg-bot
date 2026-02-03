@@ -1,4 +1,5 @@
 from aiogram import Router, F
+from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
@@ -7,7 +8,7 @@ from src.bot.states import SearchCargo, SubscribeRoute
 from src.bot.keyboards import cargos_menu, subscriptions_menu, city_kb, main_menu
 from src.bot.utils import cargo_deeplink
 from src.bot.utils.cities import city_suggest
-from src.core.ai import parse_city
+from src.core.ai import parse_city, parse_cargo_search
 from src.core.database import async_session
 from src.core.models import Cargo, CargoStatus, RouteSubscription
 from src.core.logger import logger
@@ -17,6 +18,97 @@ router = Router()
 
 CANCEL_HINT = "\n\n❌ Отмена: /cancel"
 STOP_WORDS = {"да", "ок", "okay", "привет", "hello", "hi", "угу", "ага"}
+
+@router.message(Command("find"))
+async def smart_find(message: Message):
+    """
+    Умный поиск: /find мск питер 20т
+    Парсит города, вес, цену из одной строки
+    """
+    parts = (message.text or "").split(maxsplit=1)
+    text = parts[1].strip() if len(parts) > 1 else ""
+
+    if not text:
+        await message.answer(
+            "🔍 <b>Умный поиск грузов</b>\n\n"
+            "Примеры:\n"
+            "• <code>/find москва питер</code>\n"
+            "• <code>/find мск спб 20т</code>\n"
+            "• <code>/find из казани в москву</code>\n"
+            "• <code>/find ростов 10-15 тонн до 100000</code>\n\n"
+            "Можно указать:\n"
+            "— города (откуда/куда)\n"
+            "— вес (тонны)\n"
+            "— цену (макс)"
+        )
+        return
+
+    params = await parse_cargo_search(text)
+
+    if not params:
+        await message.answer(
+            "❌ Не понял запрос. Попробуй:\n"
+            "<code>/find москва питер</code>"
+        )
+        return
+
+    async with async_session() as session:
+        query = select(Cargo).where(Cargo.status == CargoStatus.NEW)
+
+        if params.get("from_city"):
+            query = query.where(Cargo.from_city.ilike(f"%{params['from_city']}%"))
+
+        if params.get("to_city"):
+            query = query.where(Cargo.to_city.ilike(f"%{params['to_city']}%"))
+
+        if params.get("min_weight") is not None:
+            query = query.where(Cargo.weight >= params["min_weight"])
+
+        if params.get("max_weight") is not None:
+            query = query.where(Cargo.weight <= params["max_weight"])
+
+        if params.get("max_price") is not None:
+            query = query.where(Cargo.price <= params["max_price"])
+
+        result = await session.execute(
+            query.order_by(Cargo.created_at.desc()).limit(10)
+        )
+        cargos = result.scalars().all()
+
+    filters = []
+    if params.get("from_city"):
+        filters.append(f"из {params['from_city']}")
+    if params.get("to_city"):
+        filters.append(f"в {params['to_city']}")
+    if params.get("min_weight") is not None or params.get("max_weight") is not None:
+        w_min = params.get("min_weight", 0)
+        w_max = params.get("max_weight", "∞")
+        filters.append(f"{w_min}-{w_max}т")
+    if params.get("max_price"):
+        filters.append(f"до {params['max_price']:,}₽")
+
+    filter_text = " ".join(filters) if filters else "все"
+
+    if not cargos:
+        await message.answer(
+            f"📭 Грузов не найдено\n"
+            f"Фильтр: {filter_text}",
+            reply_markup=cargos_menu(),
+        )
+        return
+
+    text = f"🔍 <b>Найдено {len(cargos)} грузов</b>\n"
+    text += f"Фильтр: {filter_text}\n\n"
+
+    for c in cargos:
+        text += f"📦 <b>{c.from_city} → {c.to_city}</b>\n"
+        text += f"   {c.cargo_type} • {c.weight}т • {c.price:,}₽\n"
+        text += f"   📅 {c.load_date.strftime('%d.%m')}"
+        if c.load_time:
+            text += f" в {c.load_time}"
+        text += f" → /cargo_{c.id}\n\n"
+
+    await message.answer(text, reply_markup=cargos_menu())
 
 def _looks_like_city(text: str) -> bool:
     t = (text or "").strip().lower()

@@ -96,6 +96,159 @@ async def parse_cargo_request(text: str) -> dict | None:
         logger.error(f"AI cargo parse error: {e}")
     return None
 
+async def parse_cargo_search(text: str) -> dict | None:
+    """
+    Парсит поисковый запрос из естественного языка.
+    Примеры:
+    - "москва питер" → {from_city: "Москва", to_city: "Санкт-Петербург"}
+    - "мск спб 20т" → {from_city: "Москва", to_city: "Санкт-Петербург", min_weight: 20, max_weight: 20}
+    - "из казани 10-15 тонн до 100000" → {from_city: "Казань", min_weight: 10, max_weight: 15, max_price: 100000}
+    """
+    if not client:
+        return _parse_search_simple(text)
+
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{
+                "role": "system",
+                "content": """Ты парсер поисковых запросов для грузоперевозок.
+Извлеки параметры из текста. Верни ТОЛЬКО JSON без пояснений:
+{
+  "from_city": "Город отправления",
+  "to_city": "Город назначения",
+  "min_weight": число,
+  "max_weight": число,
+  "max_price": число
+}
+
+Правила:
+- Города пиши полностью с большой буквы
+- Сокращения: мск=Москва, спб/питер=Санкт-Петербург, екб=Екатеринбург, нск=Новосибирск, рнд=Ростов-на-Дону, нн=Нижний Новгород, крд=Краснодар
+- "20т" или "20 тонн" → min_weight=20, max_weight=20
+- "10-15т" → min_weight=10, max_weight=15
+- "от 10т" → min_weight=10
+- "до 20т" → max_weight=20
+- "до 100к" или "до 100000" → max_price=100000
+- "50к" = 50000
+- Если параметр не указан — НЕ включай его в JSON
+- Если указан только один город без предлогов — это from_city"""
+            }, {
+                "role": "user",
+                "content": text
+            }],
+            max_tokens=150,
+            temperature=0
+        )
+
+        result = response.choices[0].message.content.strip()
+        logger.info(f"AI search parse: {text} -> {result}")
+
+        if "{" in result and "}" in result:
+            json_str = result[result.find("{"):result.rfind("}") + 1]
+            data = json.loads(json_str)
+            return _normalize_search_params(data)
+
+    except Exception as e:
+        logger.error(f"AI search parse error: {e}")
+
+    return _parse_search_simple(text)
+
+
+def _normalize_search_params(data: dict) -> dict | None:
+    if not isinstance(data, dict):
+        return None
+
+    out: dict = {}
+    if data.get("from_city"):
+        out["from_city"] = str(data["from_city"]).strip()
+    if data.get("to_city"):
+        out["to_city"] = str(data["to_city"]).strip()
+
+    for key in ("min_weight", "max_weight"):
+        if key in data and data[key] is not None:
+            try:
+                out[key] = float(str(data[key]).replace(",", ".").strip())
+            except Exception:
+                pass
+
+    if "max_price" in data and data["max_price"] is not None:
+        try:
+            raw = str(data["max_price"]).replace(" ", "").replace(",", ".").strip()
+            out["max_price"] = int(float(raw))
+        except Exception:
+            pass
+
+    return out if out else None
+
+
+def _parse_search_simple(text: str) -> dict | None:
+    """Простой парсинг без AI"""
+    result: dict = {}
+    text_lower = (text or "").lower()
+
+    matches: list[tuple[int, str, str | None]] = []
+    for alias, city in CITY_ALIASES.items():
+        alias_key = alias.lower()
+        idx = text_lower.find(alias_key)
+        if idx == -1 and len(alias_key) > 4:
+            idx = text_lower.find(alias_key[:-1])
+        if idx != -1:
+            prefix = text_lower[max(0, idx - 12):idx]
+            role = None
+            if re.search(r"(из|от)\\s+$", prefix):
+                role = "from"
+            elif re.search(r"(в|до|к)\\s+$", prefix):
+                role = "to"
+            matches.append((idx, city, role))
+
+    has_explicit_from = False
+    has_explicit_to = False
+    for _, city, role in sorted(matches, key=lambda x: x[0]):
+        if role == "from" and not result.get("from_city"):
+            result["from_city"] = city
+            has_explicit_from = True
+        elif role == "to" and not result.get("to_city"):
+            result["to_city"] = city
+            has_explicit_to = True
+
+    for _, city, _role in sorted(matches, key=lambda x: x[0]):
+        if not result.get("from_city"):
+            if has_explicit_to and not has_explicit_from:
+                continue
+            result["from_city"] = city
+        elif not result.get("to_city") and result.get("from_city") != city:
+            result["to_city"] = city
+            break
+
+    weight_match = re.search(r"(\\d+(?:[.,]\\d+)?)\\s*[-–]\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:т|тонн)", text_lower)
+    if weight_match:
+        result["min_weight"] = float(weight_match.group(1).replace(",", "."))
+        result["max_weight"] = float(weight_match.group(2).replace(",", "."))
+    else:
+        w_from = re.search(r"от\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:т|тонн)", text_lower)
+        w_to = re.search(r"до\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:т|тонн)", text_lower)
+        if w_from:
+            result["min_weight"] = float(w_from.group(1).replace(",", "."))
+        if w_to:
+            result["max_weight"] = float(w_to.group(1).replace(",", "."))
+        if not w_from and not w_to:
+            weight_match = re.search(r"(\\d+(?:[.,]\\d+)?)\\s*(?:т|тонн)", text_lower)
+            if weight_match:
+                w = float(weight_match.group(1).replace(",", "."))
+                result["min_weight"] = w
+                result["max_weight"] = w
+
+    price_match = re.search(r"до\\s*(\\d+(?:[.,]\\d+)?)\\s*к", text_lower)
+    if price_match:
+        result["max_price"] = int(float(price_match.group(1).replace(",", ".")) * 1000)
+    else:
+        price_match = re.search(r"до\\s*(\\d{4,})", text_lower)
+        if price_match:
+            result["max_price"] = int(price_match.group(1))
+
+    return result if result else None
+
 async def estimate_price(from_city: str, to_city: str, weight: float) -> int | None:
     """Оценка цены перевозки"""
     if not client:
