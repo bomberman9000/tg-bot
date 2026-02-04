@@ -86,7 +86,7 @@ class Cargo(Base):
 class Application(Base):
     __tablename__ = "applications"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     deal_id: Mapped[int] = mapped_column(Integer, ForeignKey("cargos.id"))
     type: Mapped[str] = mapped_column(String(1))  # "A" или "B"
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft, sent, signed, cancelled
@@ -115,7 +115,7 @@ class ApplicationPartySnapshot(Base):
     __tablename__ = "application_party_snapshots"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    application_id: Mapped[int] = mapped_column(Integer, ForeignKey("applications.id"))
+    application_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("applications.id"))
     role: Mapped[str] = mapped_column(String(20))  # client, forwarder, carrier
     payload_json: Mapped[str] = mapped_column(Text)  # JSON с реквизитами
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -151,13 +151,13 @@ class CompanyDetails(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-class AuditLog(Base):
-    __tablename__ = "audit_logs"
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    entity_type: Mapped[str] = mapped_column(String(50))
-    entity_id: Mapped[int] = mapped_column(Integer)
-    action: Mapped[str] = mapped_column(String(50))
+    entity_type: Mapped[str] = mapped_column(String(20))
+    entity_id: Mapped[int] = mapped_column(BigInteger)
+    action: Mapped[str] = mapped_column(String(30))
     actor_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     actor_role: Mapped[str | None] = mapped_column(String(20), nullable=True)
     meta_json: Mapped[str | None] = mapped_column(Text, nullable=True)

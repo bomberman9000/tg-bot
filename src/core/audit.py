@@ -4,7 +4,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.models import AuditLog
+from src.core.models import AuditEvent
 
 
 def log_audit_event(
@@ -17,7 +17,7 @@ def log_audit_event(
     meta: dict[str, Any] | None = None,
 ) -> None:
     """Логирует событие в аудит."""
-    log = AuditLog(
+    log = AuditEvent(
         entity_type=entity_type,
         entity_id=entity_id,
         action=action,

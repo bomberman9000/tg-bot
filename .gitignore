@@ -10,3 +10,7 @@ wheels/
 .venv
 .env
 docker-compose.yml.bak
+
+# IDE / tooling (не пушить в main)
+.cursor/
+.codex/
