@@ -131,12 +131,17 @@ async def start_search(cb: CallbackQuery, state: FSMContext):
 
 @router.message(SearchCargo.from_city)
 async def search_from(message: Message, state: FSMContext):
-    if message.text.lower() == "отмена":
+    text = (message.text or "").strip()
+    if not text:
+        await message.answer("Пришлите текст (город/маршрут) или напишите «Отмена».")
+        return
+
+    if text.lower() == "отмена":
         await state.clear()
         await message.answer("❌ Поиск отменён", reply_markup=main_menu())
         return
 
-    city = await parse_city(message.text)
+    city = await parse_city(text)
     await state.update_data(from_city=city)
     await message.answer(
         f"✅ Откуда: <b>{city}</b>\n\n"
