@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import BigInteger, String, DateTime, Boolean, Text, Integer, Float, Enum, Index
+from sqlalchemy import BigInteger, String, DateTime, Boolean, Text, Integer, Float, Enum, Index, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from src.core.database import Base
 import enum
@@ -62,7 +62,9 @@ class Cargo(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     owner_id: Mapped[int] = mapped_column(BigInteger)
     carrier_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    
+    client_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    forwarder_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
     from_city: Mapped[str] = mapped_column(String(100))
     to_city: Mapped[str] = mapped_column(String(100))
     
@@ -79,6 +81,88 @@ class Cargo(Base):
     status: Mapped[CargoStatus] = mapped_column(Enum(CargoStatus), default=CargoStatus.NEW)
     tracking_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Application(Base):
+    __tablename__ = "applications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    deal_id: Mapped[int] = mapped_column(Integer, ForeignKey("cargos.id"))
+    type: Mapped[str] = mapped_column(String(1))  # "A" или "B"
+    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft, sent, signed, cancelled
+
+    created_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    selected_carrier_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Подписи
+    signed_by_client_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    signed_by_forwarder_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    signed_by_carrier_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # Рендер
+    rendered_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rendered_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # PDF
+    pdf_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    pdf_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ApplicationPartySnapshot(Base):
+    __tablename__ = "application_party_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(Integer, ForeignKey("applications.id"))
+    role: Mapped[str] = mapped_column(String(20))  # client, forwarder, carrier
+    payload_json: Mapped[str] = mapped_column(Text)  # JSON с реквизитами
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CompanyDetails(Base):
+    __tablename__ = "company_details"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), unique=True)
+
+    company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    inn: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    kpp: Mapped[str | None] = mapped_column(String(9), nullable=True)
+    ogrn: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    legal_address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    bank_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    bank_bik: Mapped[str | None] = mapped_column(String(9), nullable=True)
+    bank_account: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    bank_corr_account: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    contact_person: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    contact_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    contact_email: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    driver_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    driver_passport: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    driver_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    vehicle_info: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entity_type: Mapped[str] = mapped_column(String(50))
+    entity_id: Mapped[int] = mapped_column(Integer)
+    action: Mapped[str] = mapped_column(String(50))
+    actor_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    actor_role: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    meta_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 
 class CargoResponse(Base):
     __tablename__ = "cargo_responses"
