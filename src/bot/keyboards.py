@@ -62,6 +62,24 @@ def delete_confirm_kb(cargo_id: int):
     b.row(InlineKeyboardButton(text="❌ Нет", callback_data=f"delete_no_{cargo_id}"))
     return b.as_markup()
 
+def cargo_open_list_kb(cargos, back_cb: str = "cargos") -> InlineKeyboardMarkup:
+    """Список грузов: кнопки «Открыть #id» + Назад."""
+    kb = InlineKeyboardMarkup(inline_keyboard=[])
+
+    for c in cargos:
+        kb.inline_keyboard.append([
+            InlineKeyboardButton(
+                text=f"Открыть #{c.id}",
+                callback_data=f"cargo_open_{c.id}",
+            )
+        ])
+
+    kb.inline_keyboard.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb)
+    ])
+    return kb
+
+
 def cargos_menu():
     b = InlineKeyboardBuilder()
     b.row(InlineKeyboardButton(text="📋 Все грузы", callback_data="all_cargos"))
