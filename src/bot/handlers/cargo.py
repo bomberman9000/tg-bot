@@ -11,7 +11,19 @@ from src.bot.utils import cargo_deeplink
 from src.bot.utils.cities import city_suggest
 from src.core.ai import parse_city
 from src.core.database import async_session
-from src.core.models import Cargo, CargoStatus, CargoResponse, User, RouteSubscription, Rating, UserProfile, VerificationStatus
+from src.core.models import (
+    Cargo,
+    CargoStatus,
+    CargoResponse,
+    User,
+    RouteSubscription,
+    Rating,
+    UserProfile,
+    VerificationStatus,
+    CompanyDetails,
+    Claim,
+    ClaimStatus,
+)
 from src.core.documents import generate_ttn
 from src.core.logger import logger
 from src.bot.bot import bot
@@ -39,9 +51,12 @@ def _verification_label(profile: UserProfile | None) -> str:
         return "подтверждён"
     return "обычный"
 
-async def render_cargo_card(session, cargo: Cargo, viewer_id: int) -> tuple[str, bool]:
+async def render_cargo_card(session, cargo: Cargo, viewer_id: int) -> tuple[str, bool, int | None]:
     owner = await session.scalar(select(User).where(User.id == cargo.owner_id))
     owner_profile = await session.scalar(select(UserProfile).where(UserProfile.user_id == cargo.owner_id))
+    owner_company = await session.scalar(
+        select(CompanyDetails).where(CompanyDetails.user_id == cargo.owner_id)
+    )
 
     avg_rating = await session.scalar(
         select(func.avg(Rating.score)).where(Rating.to_user_id == cargo.owner_id)
@@ -79,15 +94,23 @@ async def render_cargo_card(session, cargo: Cargo, viewer_id: int) -> tuple[str,
 
     if owner:
         text += f"\n👤 Заказчик: {owner.full_name if owner.full_name else owner.id}"
-        if can_show_contacts and owner.phone:
-            text += f" ({owner.phone})"
+        if owner_company:
+            rating = owner_company.total_rating
+            stars = "⭐" * rating + "☆" * (10 - rating)
+            text += f"\n🏢 {owner_company.company_name or 'Компания'}"
+            text += f"\n📊 Рейтинг: {stars} ({rating}/10)"
         else:
-            stars = "⭐" * round(avg_rating) if avg_rating else "нет оценок"
-            text += f"\n⭐ Рейтинг: {stars} ({rating_count or 0})"
+            text += "\n⚠️ Компания не зарегистрирована"
+        if can_show_contacts and owner.phone:
+            text += f"\n📞 {owner.phone}"
+        else:
+            stars_old = "⭐" * round(avg_rating) if avg_rating else "нет оценок"
+            text += f"\n⭐ Оценки: {stars_old} ({rating_count or 0})"
             text += f"\n🛡 Верификация: {_verification_label(owner_profile)}"
             text += "\n📵 Контакты скрыты до начала сделки"
 
-    return text, is_owner
+    owner_company_id = owner_company.id if owner_company else None
+    return text, is_owner, owner_company_id
 
 
 
@@ -106,6 +129,9 @@ async def send_cargo_details(message: Message, cargo_id: int) -> bool:
             carrier = (await session.execute(select(User).where(User.id == cargo.carrier_id))).scalar_one_or_none()
 
         owner_profile = await session.scalar(select(UserProfile).where(UserProfile.user_id == cargo.owner_id))
+        owner_company = await session.scalar(
+            select(CompanyDetails).where(CompanyDetails.user_id == cargo.owner_id)
+        )
 
         avg_rating = await session.scalar(
             select(func.avg(Rating.score)).where(Rating.to_user_id == cargo.owner_id)
@@ -144,6 +170,14 @@ async def send_cargo_details(message: Message, cargo_id: int) -> bool:
     owner_name = owner.full_name if owner else "N/A"
     text += f"\n👤 Заказчик: {owner_name}"
 
+    if owner_company:
+        rating = owner_company.total_rating
+        stars = "⭐" * rating + "☆" * (10 - rating)
+        text += f"\n🏢 {owner_company.company_name or 'Компания'}"
+        text += f"\n📊 Рейтинг: {stars} ({rating}/10)"
+    else:
+        text += "\n⚠️ Компания не зарегистрирована"
+
     if can_show_contacts and is_participant:
         other = carrier if is_owner else owner
         if other:
@@ -152,17 +186,20 @@ async def send_cargo_details(message: Message, cargo_id: int) -> bool:
             text += f"\n📞 Контакты: {other.full_name}{company} — {phone}"
     else:
         stars = "⭐" * round(avg_rating) if avg_rating else "нет оценок"
-        text += f"\n⭐ Рейтинг: {stars} ({rating_count or 0})"
+        text += f"\n⭐ Оценки: {stars} ({rating_count or 0})"
         text += f"\n🛡 Верификация: {_verification_label(owner_profile)}"
         text += "\n📞 Контакты доступны только участникам сделки"
 
     if cargo.status == CargoStatus.IN_PROGRESS and is_participant:
         text += "\n\n🗺 Трекинг доступен в меню сделки"
 
+    owner_company_id = owner_company.id if owner_company else None
     if cargo.status == CargoStatus.IN_PROGRESS and is_participant:
         reply_markup = deal_actions(cargo.id, is_owner)
     else:
-        reply_markup = cargo_actions(cargo.id, is_owner, cargo.status)
+        reply_markup = cargo_actions(
+            cargo.id, is_owner, cargo.status, owner_company_id
+        )
 
     await message.answer(text, reply_markup=reply_markup)
     return True
@@ -252,12 +289,24 @@ async def cargo_open(cb: CallbackQuery):
             await cb.answer("❌ Груз не найден", show_alert=True)
             return
 
-        text, is_owner = await render_cargo_card(session, cargo, cb.from_user.id)
+        text, is_owner, owner_company_id = await render_cargo_card(
+            session, cargo, cb.from_user.id
+        )
 
     try:
-        await cb.message.edit_text(text, reply_markup=cargo_actions(cargo.id, is_owner, cargo.status))
+        await cb.message.edit_text(
+            text,
+            reply_markup=cargo_actions(
+                cargo.id, is_owner, cargo.status, owner_company_id
+            ),
+        )
     except TelegramBadRequest:
-        await cb.message.answer(text, reply_markup=cargo_actions(cargo.id, is_owner, cargo.status))
+        await cb.message.answer(
+            text,
+            reply_markup=cargo_actions(
+                cargo.id, is_owner, cargo.status, owner_company_id
+            ),
+        )
     await cb.answer()
 
 @router.callback_query(F.data.startswith("edit_cargo_"))
@@ -892,6 +941,22 @@ async def show_responses(cb: CallbackQuery):
         )
         profiles = {p.user_id: p for p in profiles_result.scalars().all()}
 
+        companies_result = await session.execute(
+            select(CompanyDetails).where(CompanyDetails.user_id.in_(carrier_ids))
+        )
+        companies_by_user = {c.user_id: c for c in companies_result.scalars().all()}
+        company_ids = [c.id for c in companies_by_user.values()]
+
+        open_claims_by_company = {}
+        if company_ids:
+            claims_result = await session.execute(
+                select(Claim.to_company_id, func.count())
+                .where(Claim.to_company_id.in_(company_ids))
+                .where(Claim.status == ClaimStatus.OPEN)
+                .group_by(Claim.to_company_id)
+            )
+            open_claims_by_company = dict(claims_result.all())
+
         ratings_result = await session.execute(
             select(Rating.to_user_id, func.avg(Rating.score), func.count())
             .where(Rating.to_user_id.in_(carrier_ids))
@@ -899,7 +964,7 @@ async def show_responses(cb: CallbackQuery):
         )
         ratings = {row[0]: (row[1], row[2]) for row in ratings_result.all()}
 
-    header = f"📋 <b>Отклики на груз #{cargo_id}:</b>\n\n"
+    header = f"👥 <b>Отклики на груз #{cargo_id}</b>\n\n"
     try:
         await cb.message.edit_text(
             header,
@@ -911,22 +976,38 @@ async def show_responses(cb: CallbackQuery):
     for response in responses:
         user = users.get(response.carrier_id)
         profile = profiles.get(response.carrier_id)
+        carrier_company = companies_by_user.get(response.carrier_id)
         rating_avg, rating_count = ratings.get(response.carrier_id, (None, 0))
-        stars = "⭐" * round(rating_avg) if rating_avg else "нет оценок"
         status = "⏳" if response.is_accepted is None else ("✅" if response.is_accepted else "❌")
-        name = user.full_name if user else f"ID:{response.carrier_id}"
+        name = user.full_name if user else "Перевозчик"
 
-        text = f"{status} {name}\n"
-        text += f"⭐ Рейтинг: {stars} ({rating_count})\n"
+        text = f"🚛 <b>{name}</b>\n"
+
+        if carrier_company:
+            rating = carrier_company.total_rating
+            stars = "⭐" * rating + "☆" * (10 - rating)
+            text += f"🏢 {carrier_company.company_name or 'Компания'}\n"
+            text += f"📊 Рейтинг: {stars} ({rating}/10)\n"
+            if rating < 4:
+                text += "⚠️ <i>Низкий рейтинг — будьте внимательны</i>\n"
+            open_claims = open_claims_by_company.get(carrier_company.id, 0)
+            if open_claims > 0:
+                text += f"🚨 Открытых претензий: {open_claims}\n"
+        else:
+            text += "⚠️ Компания не зарегистрирована\n"
+
+        stars_old = "⭐" * round(rating_avg) if rating_avg else "нет оценок"
+        text += f"⭐ Оценки: {stars_old} ({rating_count})\n"
         text += f"🛡 Верификация: {_verification_label(profile)}\n"
         if response.price_offer:
-            text += f"💰 Цена: {response.price_offer} ₽\n"
+            text += f"💰 Ставка: {response.price_offer:,} ₽\n"
         if response.comment:
             text += f"💬 {response.comment}\n"
 
         reply_markup = None
         if response.is_accepted is None and cargo.status == CargoStatus.NEW:
-            reply_markup = response_actions(response.id)
+            carrier_company_id = carrier_company.id if carrier_company else None
+            reply_markup = response_actions(response.id, carrier_company_id)
 
         await cb.message.answer(text, reply_markup=reply_markup)
 
@@ -1148,12 +1229,24 @@ async def delete_cargo_no(cb: CallbackQuery):
             await cb.answer("Груз не найден", show_alert=True)
             return
 
-        text, is_owner = await render_cargo_card(session, cargo, cb.from_user.id)
+        text, is_owner, owner_company_id = await render_cargo_card(
+            session, cargo, cb.from_user.id
+        )
 
     try:
-        await cb.message.edit_text(text, reply_markup=cargo_actions(cargo.id, is_owner, cargo.status))
+        await cb.message.edit_text(
+            text,
+            reply_markup=cargo_actions(
+                cargo.id, is_owner, cargo.status, owner_company_id
+            ),
+        )
     except TelegramBadRequest:
-        await cb.message.answer(text, reply_markup=cargo_actions(cargo.id, is_owner, cargo.status))
+        await cb.message.answer(
+            text,
+            reply_markup=cargo_actions(
+                cargo.id, is_owner, cargo.status, owner_company_id
+            ),
+        )
     await cb.answer()
 
 @router.callback_query(F.data.startswith("delete_"))

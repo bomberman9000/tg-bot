@@ -20,7 +20,12 @@ def confirm_kb():
     )
     return b.as_markup()
 
-def cargo_actions(cargo_id: int, is_owner: bool, status: CargoStatus):
+def cargo_actions(
+    cargo_id: int,
+    is_owner: bool,
+    status: CargoStatus,
+    owner_company_id: int | None = None,
+):
     b = InlineKeyboardBuilder()
     if is_owner:
         if status != CargoStatus.ARCHIVED:
@@ -34,6 +39,13 @@ def cargo_actions(cargo_id: int, is_owner: bool, status: CargoStatus):
             b.row(InlineKeyboardButton(text="♻️ Восстановить", callback_data=f"restore_cargo_{cargo_id}"))
     else:
         b.row(InlineKeyboardButton(text="📨 Откликнуться", callback_data=f"respond_{cargo_id}"))
+        if owner_company_id is not None:
+            b.row(
+                InlineKeyboardButton(
+                    text="🏢 Профиль заказчика",
+                    callback_data=f"company_profile_{owner_company_id}",
+                )
+            )
     b.row(InlineKeyboardButton(text="📄 ТТН", callback_data=f"ttn_{cargo_id}"))
     b.row(InlineKeyboardButton(text="◀️ Назад", callback_data="cargos"))
     return b.as_markup()
@@ -111,12 +123,22 @@ def price_suggest_kb(suggested_price: int | None = None):
     b.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel"))
     return b.as_markup()
 
-def response_actions(response_id: int):
+def response_actions(
+    response_id: int,
+    carrier_company_id: int | None = None,
+):
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(text="✅ Выбрать", callback_data=f"accept_{response_id}"),
-        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{response_id}")
+        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{response_id}"),
     )
+    if carrier_company_id is not None:
+        b.row(
+            InlineKeyboardButton(
+                text="🏢 Профиль компании",
+                callback_data=f"company_profile_{carrier_company_id}",
+            )
+        )
     return b.as_markup()
 
 def subscriptions_menu():
