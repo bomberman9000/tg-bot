@@ -66,3 +66,10 @@ class LegalVerification(StatesGroup):
     ogrn = State()
     director = State()
     doc = State()
+
+
+class ClaimForm(StatesGroup):
+    claim_type = State()
+    title = State()
+    description = State()
+    amount = State()

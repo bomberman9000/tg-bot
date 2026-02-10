@@ -147,6 +147,78 @@ class CompanyDetails(Base):
     driver_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     vehicle_info: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Рейтинг (10-балльная система)
+    rating_registration: Mapped[int] = mapped_column(Integer, default=2)  # ИП/ООО = 2, физлицо = 0
+    rating_subscription: Mapped[int] = mapped_column(Integer, default=0)  # подписка = +1
+    rating_experience: Mapped[int] = mapped_column(Integer, default=0)    # >1 года = +1
+    rating_verified: Mapped[int] = mapped_column(Integer, default=0)      # верификация = +1
+    rating_deals_completed: Mapped[int] = mapped_column(Integer, default=0)  # 10+ сделок = +1, 50+ = +2
+    rating_no_claims: Mapped[int] = mapped_column(Integer, default=1)     # нет претензий = +1, есть = -1
+    rating_response_time: Mapped[int] = mapped_column(Integer, default=0)  # быстрый ответ = +1
+    rating_documents: Mapped[int] = mapped_column(Integer, default=0)      # документы в порядке = +1
+
+    registered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @property
+    def total_rating(self) -> int:
+        """Вычисляемый общий рейтинг (сумма, макс 10)."""
+        total = (
+            self.rating_registration
+            + self.rating_subscription
+            + self.rating_experience
+            + self.rating_verified
+            + self.rating_deals_completed
+            + self.rating_no_claims
+            + self.rating_response_time
+            + self.rating_documents
+        )
+        return min(10, max(0, total))
+
+
+class ClaimStatus(enum.Enum):
+    OPEN = "open"
+    IN_REVIEW = "in_review"
+    RESOLVED = "resolved"
+    REJECTED = "rejected"
+
+
+class Claim(Base):
+    __tablename__ = "claims"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    # Кто подаёт
+    from_user_id: Mapped[int] = mapped_column(BigInteger)
+    from_company_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("company_details.id"), nullable=True)
+
+    # На кого подаёт
+    to_user_id: Mapped[int] = mapped_column(BigInteger)
+    to_company_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("company_details.id"), nullable=True)
+
+    # Связь со сделкой (опционально)
+    cargo_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("cargos.id"), nullable=True)
+
+    # Данные претензии
+    claim_type: Mapped[str] = mapped_column(String(50))  # payment, damage, delay, fraud, other
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str] = mapped_column(Text)
+    amount: Mapped[int | None] = mapped_column(Integer, nullable=True)  # сумма претензии в рублях
+
+    # Статус
+    status: Mapped[ClaimStatus] = mapped_column(Enum(ClaimStatus), default=ClaimStatus.OPEN)
+
+    # Ответ компании
+    response_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    response_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # Решение (админ)
+    resolution: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

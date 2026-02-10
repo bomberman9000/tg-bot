@@ -141,12 +141,32 @@ def profile_menu():
     b.row(InlineKeyboardButton(text="🏢 Изменить компанию", callback_data="edit_company"))
     b.row(InlineKeyboardButton(text="✅ Пройти верификацию", callback_data="start_verification"))
     b.row(InlineKeyboardButton(text="💬 Сообщения", callback_data="messages"))
+    b.row(InlineKeyboardButton(text="📋 Мои претензии", callback_data="my_claims"))
     b.row(InlineKeyboardButton(text="🔔 Подписки", callback_data="subscriptions"))
     b.row(InlineKeyboardButton(text="📊 Аналитика", callback_data="analytics"))
     b.row(InlineKeyboardButton(text="🛡 Безопасность", callback_data="antifraud"))
     b.row(InlineKeyboardButton(text="📦 Мои грузы", callback_data="my_cargos"))
     b.row(InlineKeyboardButton(text="📜 История", callback_data="history"))
     b.row(InlineKeyboardButton(text="◀️ Меню", callback_data="menu"))
+    return b.as_markup()
+
+
+def claim_type_kb():
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="💰 Неоплата", callback_data="claim_type_payment"))
+    b.row(InlineKeyboardButton(text="📦 Повреждение груза", callback_data="claim_type_damage"))
+    b.row(InlineKeyboardButton(text="⏰ Срыв сроков", callback_data="claim_type_delay"))
+    b.row(InlineKeyboardButton(text="🚨 Мошенничество", callback_data="claim_type_fraud"))
+    b.row(InlineKeyboardButton(text="❓ Другое", callback_data="claim_type_other"))
+    b.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel"))
+    return b.as_markup()
+
+
+def company_actions_kb(company_id: int, viewer_id: int):
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="📝 Подать претензию", callback_data=f"new_claim_{company_id}"))
+    b.row(InlineKeyboardButton(text="📋 Претензии компании", callback_data=f"company_claims_{company_id}"))
+    b.row(InlineKeyboardButton(text="◀️ Назад", callback_data="menu"))
     return b.as_markup()
 
 def chat_kb(cargo_id: int, user_id: int):
