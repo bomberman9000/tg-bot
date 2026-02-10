@@ -73,3 +73,7 @@ class ClaimForm(StatesGroup):
     title = State()
     description = State()
     amount = State()
+
+
+class LegalCheck(StatesGroup):
+    inn = State()
