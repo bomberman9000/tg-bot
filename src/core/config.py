@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     admin_password: str = "admin123"
     secret_key: str = "your-secret-key-change-in-production"
 
+    # WebApp
+    webapp_url: str | None = None  # e.g. https://yourdomain.com
+
     # AI
     groq_api_key: str | None = None
     

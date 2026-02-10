@@ -95,9 +95,11 @@ app = FastAPI(title="Logistics Bot API", lifespan=lifespan)
 
 # Admin panel
 from src.admin.routes import router as admin_panel_router
+from src.webapp.routes import router as webapp_router
 from src.core.services.watchdog import watchdog
 
 app.include_router(admin_panel_router)
+app.include_router(webapp_router)
 
 
 @app.get("/health")

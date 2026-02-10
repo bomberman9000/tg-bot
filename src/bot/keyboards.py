@@ -1,6 +1,25 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    WebAppInfo,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from src.core.models import CargoStatus, Cargo
+from src.core.config import settings
+
+def _webapp_url(path: str = "") -> str:
+    """Build a full WebApp URL for Telegram WebAppInfo.
+
+    Set WEBAPP_URL in .env to your public domain,
+    e.g. https://yourdomain.com
+    """
+    base = (settings.webapp_url or "").rstrip("/")
+    if base:
+        return f"{base}/webapp{path}"
+    return ""
+
 
 def main_menu():
     b = InlineKeyboardBuilder()
@@ -10,6 +29,12 @@ def main_menu():
     b.row(InlineKeyboardButton(text="🤝 Мои отклики", callback_data="my_responses"))
     b.row(InlineKeyboardButton(text="⭐ Рейтинг / Профиль", callback_data="profile"))
     b.row(InlineKeyboardButton(text="🆘 Поддержка", callback_data="feedback"))
+    url = _webapp_url()
+    if url:
+        b.row(InlineKeyboardButton(
+            text="📱 Открыть WebApp",
+            web_app=WebAppInfo(url=url),
+        ))
     return b.as_markup()
 
 def confirm_kb():
@@ -241,4 +266,29 @@ def deal_actions(cargo_id: int, is_owner: bool = False):
     if is_owner:
         b.row(InlineKeyboardButton(text="✅ Завершить", callback_data=f"complete_{cargo_id}"))
     b.row(InlineKeyboardButton(text="◀️ Назад", callback_data="cargos"))
+    return b.as_markup()
+
+
+def webapp_cargo_button(cargo_id: int):
+    """Inline button that opens a specific cargo in the WebApp."""
+    url = _webapp_url(f"#cargo/{cargo_id}")
+    if not url:
+        return None
+    return InlineKeyboardButton(
+        text="📱 Открыть в WebApp",
+        web_app=WebAppInfo(url=url),
+    )
+
+
+def notification_kb(cargo_id: int):
+    """Keyboard for push-notification messages about new cargos."""
+    from src.bot.utils import cargo_deeplink
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(
+        text="📦 Открыть в боте",
+        url=cargo_deeplink(cargo_id),
+    ))
+    wa_btn = webapp_cargo_button(cargo_id)
+    if wa_btn:
+        b.row(wa_btn)
     return b.as_markup()

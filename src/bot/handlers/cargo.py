@@ -520,38 +520,20 @@ async def restore_cargo(cb: CallbackQuery):
         )
         session.add(restored)
         await session.commit()
+        await session.refresh(restored)
         new_id = restored.id
 
-        subs = await session.execute(
-            select(RouteSubscription).where(
-                RouteSubscription.is_active == True
-            ).where(
-                or_(
-                    RouteSubscription.from_city.is_(None),
-                    RouteSubscription.from_city.ilike(f"%{cargo.from_city}%")
-                )
-            ).where(
-                or_(
-                    RouteSubscription.to_city.is_(None),
-                    RouteSubscription.to_city.ilike(f"%{cargo.to_city}%")
-                )
-            )
-        )
-        subscribers = subs.scalars().all()
-
-    for sub in subscribers:
-        if sub.user_id != cb.from_user.id:
-            try:
-                link = cargo_deeplink(new_id)
-                await bot.send_message(
-                    sub.user_id,
-                    f"🔔 Новый груз по твоему маршруту!\n\n"
-                    f"📍 {cargo.from_city} → {cargo.to_city}\n"
-                    f"⚖️ {cargo.weight}т, 💰 {cargo.price}₽\n"
-                    f"{link}"
-                )
-            except:
-                pass
+    # Send push notifications to route subscribers
+    from src.core.services.notifications import notify_subscribers
+    try:
+        await notify_subscribers(restored)
+        async with async_session() as session:
+            c = await session.scalar(select(Cargo).where(Cargo.id == new_id))
+            if c:
+                c.notified_at = datetime.utcnow()
+                await session.commit()
+    except Exception as e:
+        logger.warning("Notification failed for cargo #%s: %s", new_id, e)
 
     await cb.message.answer(f"✅ Груз восстановлен как #{new_id}")
     await send_cargo_details(cb.message, new_id)
@@ -807,8 +789,11 @@ async def show_confirm(message: Message, state: FSMContext):
 
 @router.callback_query(CargoForm.confirm, F.data == "yes")
 async def cargo_confirm_yes(cb: CallbackQuery, state: FSMContext):
+    from src.core.services.notifications import notify_subscribers
+    from datetime import datetime as _dt
+
     data = await state.get_data()
-    
+
     async with async_session() as session:
         cargo = Cargo(
             owner_id=cb.from_user.id,
@@ -819,48 +804,29 @@ async def cargo_confirm_yes(cb: CallbackQuery, state: FSMContext):
             price=data['price'],
             load_date=data['load_date'],
             load_time=data.get('load_time'),
-            comment=data.get('comment')
+            comment=data.get('comment'),
         )
         session.add(cargo)
         await session.commit()
+        await session.refresh(cargo)
         cargo_id = cargo.id
-        
-        subs = await session.execute(
-            select(RouteSubscription).where(
-                RouteSubscription.is_active == True
-            ).where(
-                or_(
-                    RouteSubscription.from_city.is_(None),
-                    RouteSubscription.from_city.ilike(f"%{data['from_city']}%")
-                )
-            ).where(
-                or_(
-                    RouteSubscription.to_city.is_(None),
-                    RouteSubscription.to_city.ilike(f"%{data['to_city']}%")
-                )
-            )
-        )
-        subscribers = subs.scalars().all()
-    
+
     await state.clear()
     await cb.message.edit_text(f"✅ Груз #{cargo_id} опубликован!", reply_markup=main_menu())
-    
-    for sub in subscribers:
-        if sub.user_id != cb.from_user.id:
-            try:
-                link = cargo_deeplink(cargo_id)
-                await bot.send_message(
-                    sub.user_id,
-                    f"🔔 Новый груз по твоему маршруту!\n\n"
-                    f"📍 {data['from_city']} → {data['to_city']}\n"
-                    f"⚖️ {data['weight']}т, 💰 {data['price']}₽\n"
-                    f"{link}"
-                )
-            except:
-                pass
-    
+
+    # Send push notifications to route subscribers
+    try:
+        await notify_subscribers(cargo)
+        async with async_session() as session:
+            c = await session.scalar(select(Cargo).where(Cargo.id == cargo_id))
+            if c:
+                c.notified_at = _dt.utcnow()
+                await session.commit()
+    except Exception as e:
+        logger.warning("Notification failed for cargo #%s: %s", cargo_id, e)
+
     await cb.answer()
-    logger.info(f"Cargo {cargo_id} created by {cb.from_user.id}")
+    logger.info("Cargo %s created by %s", cargo_id, cb.from_user.id)
 
 @router.callback_query(CargoForm.confirm, F.data == "no")
 async def cargo_confirm_no(cb: CallbackQuery, state: FSMContext):

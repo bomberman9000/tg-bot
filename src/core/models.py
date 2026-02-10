@@ -80,6 +80,7 @@ class Cargo(Base):
     
     status: Mapped[CargoStatus] = mapped_column(Enum(CargoStatus), default=CargoStatus.NEW)
     tracking_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
