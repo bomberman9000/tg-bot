@@ -29,7 +29,9 @@ async def lifespan(app: FastAPI):
     from src.bot.handlers.claims import router as claims_router
     from src.bot.handlers.legal import router as legal_router
     from src.bot.middlewares.logging import LoggingMiddleware
-    
+    from src.bot.middlewares.watchdog import WatchdogMiddleware
+    from src.core.services.watchdog import watchdog_loop
+
     logger.info("Starting bot...")
     
     await init_db()
@@ -56,6 +58,8 @@ async def lifespan(app: FastAPI):
     
     setup_scheduler()
     
+    dp.message.middleware(WatchdogMiddleware())
+    dp.callback_query.middleware(WatchdogMiddleware())
     dp.message.middleware(LoggingMiddleware())
     dp.callback_query.middleware(LoggingMiddleware())
     dp.include_router(admin_router)
@@ -77,7 +81,9 @@ async def lifespan(app: FastAPI):
     dp.include_router(reminder_router)
     
     polling_task = asyncio.create_task(dp.start_polling(bot))
+    asyncio.create_task(watchdog_loop())
     logger.info("Bot polling started")
+    logger.info("Watchdog started")
     yield
     logger.info("Shutting down...")
     scheduler.shutdown()
@@ -89,7 +95,30 @@ app = FastAPI(title="Logistics Bot API", lifespan=lifespan)
 
 # Admin panel
 from src.admin.routes import router as admin_panel_router
+from src.core.services.watchdog import watchdog
+
 app.include_router(admin_panel_router)
+
+
+@app.get("/health")
+async def health_check():
+    """Health check для внешнего мониторинга (Docker, uptime)."""
+    health = await watchdog.check_health()
+    is_healthy = all(
+        "❌" not in str(v) for v in health["checks"].values()
+    )
+    return {
+        "status": "healthy" if is_healthy else "unhealthy",
+        "timestamp": health["timestamp"],
+        "checks": health["checks"],
+    }
+
+
+@app.get("/health/detailed")
+async def health_detailed():
+    """Детальный health check."""
+    return await watchdog.check_health()
+
 
 @app.get("/api/health")
 async def health():

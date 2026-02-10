@@ -6,12 +6,46 @@ from src.core.config import settings
 from src.core.database import async_session
 from src.core.models import User, Cargo, Feedback
 from src.core.redis import get_redis
+from src.core.services.watchdog import watchdog
 from src.bot.bot import bot
 
 router = Router()
 
+
 def is_admin(user_id: int) -> bool:
     return user_id == settings.admin_id
+
+
+@router.message(Command("health"))
+async def cmd_health(message: Message):
+    """Проверка здоровья системы (только для админа)"""
+    if not is_admin(message.from_user.id):
+        return
+
+    msg = await message.answer("⏳ Проверяю...")
+
+    health = await watchdog.check_health()
+    text = watchdog.format_status(health)
+
+    await msg.edit_text(text, parse_mode="HTML")
+
+
+@router.message(Command("errors"))
+async def cmd_errors(message: Message):
+    """Последние ошибки (только для админа)"""
+    if not is_admin(message.from_user.id):
+        return
+
+    if not watchdog.checks:
+        await message.answer("✅ Ошибок нет")
+        return
+
+    text = "🔴 <b>Последние ошибки:</b>\n\n"
+    for check in watchdog.checks[-10:]:
+        if check["type"] == "error":
+            text += f"• {check['time'][:19]}\n  {check['message'][:100]}\n\n"
+
+    await message.answer(text, parse_mode="HTML")
 
 @router.message(Command("stats"))
 async def admin_stats(message: Message):
