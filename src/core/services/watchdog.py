@@ -129,11 +129,19 @@ class BotWatchdog:
 
 watchdog = BotWatchdog()
 
+# Кулдаун алертов: не слать одно и то же чаще чем раз в 15 минут
+ALERT_COOLDOWN_SEC = 900
+_last_alert: dict[str, float] = {}
 
-async def notify_admin(message: str):
-    """Отправить уведомление админу"""
+
+async def notify_admin(message: str, alert_key: str = "default"):
+    """Отправить уведомление админу (с кулдауном по alert_key)."""
     if settings.admin_id is None:
         return
+    now = datetime.utcnow().timestamp()
+    if now - _last_alert.get(alert_key, 0) < ALERT_COOLDOWN_SEC:
+        return
+    _last_alert[alert_key] = now
     try:
         from src.bot.bot import bot
         await bot.send_message(
@@ -146,7 +154,7 @@ async def notify_admin(message: str):
 
 
 async def watchdog_loop():
-    """Фоновый цикл мониторинга"""
+    """Фоновый цикл мониторинга."""
     while True:
         try:
             await asyncio.sleep(60)
@@ -157,13 +165,15 @@ async def watchdog_loop():
                 await notify_admin(
                     "Обнаружены проблемы!\n\n"
                     f"Ошибок: {health['error_count']}\n"
-                    f"Последняя активность: {health['last_activity']}"
+                    f"Последняя активность: {health['last_activity']}",
+                    alert_key="bot_unhealthy",
                 )
 
             for name, status in health["checks"].items():
                 if "❌" in str(status):
                     await notify_admin(
-                        f"Компонент {name} недоступен:\n{status}"
+                        f"Компонент {name} недоступен:\n{status}",
+                        alert_key=f"check_{name}",
                     )
 
         except Exception as e:

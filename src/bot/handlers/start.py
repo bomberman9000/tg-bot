@@ -1,7 +1,11 @@
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery
-from aiogram.types import ReplyKeyboardRemove
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    ReplyKeyboardRemove,
+    InlineKeyboardMarkup,
+)
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from sqlalchemy import select
@@ -27,19 +31,41 @@ async def upsert_text(obj, text: str, reply_markup=None, disable_web_page_previe
     Если Message — пытаемся отредактировать последнее (сам Message) если возможно,
     иначе отправляем новое.
     """
+    # Inline keyboard можно использовать с edit_text,
+    # reply- и remove-клавиатуры — только с answer().
+    is_inline = (
+        reply_markup is None or isinstance(reply_markup, InlineKeyboardMarkup)
+    )
+
     try:
         if isinstance(obj, CallbackQuery):
-            return await obj.message.edit_text(
+            if is_inline:
+                return await obj.message.edit_text(
+                    text,
+                    reply_markup=reply_markup,
+                    disable_web_page_preview=disable_web_page_preview,
+                )
+            return await obj.message.answer(
                 text,
                 reply_markup=reply_markup,
                 disable_web_page_preview=disable_web_page_preview,
             )
-        return await obj.edit_text(
+
+        # obj is Message
+        if is_inline:
+            return await obj.edit_text(
+                text,
+                reply_markup=reply_markup,
+                disable_web_page_preview=disable_web_page_preview,
+            )
+        return await obj.answer(
             text,
             reply_markup=reply_markup,
             disable_web_page_preview=disable_web_page_preview,
         )
+
     except (TelegramBadRequest, AttributeError):
+        # Fallback: если редактирование не удалось, отправляем новое сообщение.
         if isinstance(obj, CallbackQuery):
             return await obj.message.answer(
                 text,
