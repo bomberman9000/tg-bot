@@ -10,7 +10,7 @@ from src.core.scheduler import setup_scheduler, scheduler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from src.bot.bot import bot, dp
+    from src.bot.bot import bot
     from src.bot.handlers.verification import router as verification_router
     from src.bot.handlers.start import router as start_router
     from src.bot.handlers.feedback import router as feedback_router
@@ -55,10 +55,15 @@ async def lifespan(app: FastAPI):
     redis = await get_redis()
     await redis.ping()
     logger.info("Redis connected")
-    logger.info("FSM storage: Redis (configured in bot.py)")
+
+    from aiogram import Dispatcher
+    from aiogram.fsm.storage.redis import RedisStorage
+
+    dp = Dispatcher(storage=RedisStorage(redis=redis))
+    logger.info("FSM storage: Redis")
 
     setup_scheduler()
-    
+
     dp.message.middleware(WatchdogMiddleware())
     dp.callback_query.middleware(WatchdogMiddleware())
     dp.message.middleware(LoggingMiddleware())
