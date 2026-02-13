@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from groq import Groq
 from src.core.config import settings
 from src.core.logger import logger
@@ -6,6 +7,9 @@ import math
 import re
 
 client = Groq(api_key=settings.groq_api_key) if settings.groq_api_key else None
+
+# Паттерн времени ЧЧ:ММ или ЧЧ.ММ
+_TIME_RE = re.compile(r"(?:в\s+)?(\d{1,2})[.:](\d{2})\s*$", re.I)
 
 CITY_ALIASES = {
     "мск": "Москва", "москва": "Москва",
@@ -64,7 +68,93 @@ async def parse_city(text: str) -> str | None:
         logger.error(f"AI city parse error: {e}")
         return text.title()
 
-async def parse_cargo_request(text: str) -> dict | None:
+
+def parse_load_datetime(text: str):
+    """
+    Парсит дату и опционально время из текста.
+    Примеры: завтра, завтра в 10:00, послезавтра 14:00, 15.02.2026, 15.02 9:00.
+    Возвращает (datetime, time_str | None) или None при ошибке.
+    """
+    if not text or not text.strip():
+        return None
+    raw = text.strip().lower()
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    load_time_str = None
+
+    # Отделяем время в конце: "завтра в 10:00", "завтра 14:00"
+    time_match = _TIME_RE.search(raw)
+    if time_match:
+        h, m = int(time_match.group(1)), int(time_match.group(2))
+        if h <= 23 and m <= 59:
+            load_time_str = f"{h:02d}:{m:02d}"
+        raw = raw[: time_match.start()].strip()
+
+    if raw in ("сегодня", "today"):
+        return (today, load_time_str)
+    if raw in ("завтра", "tomorrow"):
+        return (today + timedelta(days=1), load_time_str)
+    if raw in ("послезавтра",):
+        return (today + timedelta(days=2), load_time_str)
+
+    # ДД.ММ.ГГГГ или ДД.ММ
+    raw_date = raw
+    try:
+        parts = raw_date.split(".")
+        if len(parts) == 2:
+            raw_date = raw_date + f".{today.year}"
+        load_date = datetime.strptime(raw_date, "%d.%m.%Y")
+        return (load_date, load_time_str)
+    except ValueError:
+        pass
+
+    # AI fallback: «завтра утром», «в понедельник», «20 числа»
+    if client:
+        try:
+            result = _parse_load_datetime_ai(text)
+            if result:
+                return result
+        except Exception as e:
+            logger.warning("AI load_datetime parse failed: %s", e)
+
+    return None
+
+
+def _parse_load_datetime_ai(text: str):
+    """AI извлекает дату и время из естественной фразы."""
+    today_str = datetime.now().strftime("%d.%m.%Y")
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {
+                "role": "system",
+                "content": f"""Из фразы пользователя извлеки дату загрузки и время.
+Сегодня: {today_str}. Верни ТОЛЬКО JSON: {{"date": "ДД.ММ.ГГГГ", "time": "ЧЧ:ММ" или null}}.
+Примеры: "завтра в 10" -> {{"date": "...", "time": "10:00"}}, "послезавтра" -> {{"date": "...", "time": null}}.""",
+            },
+            {"role": "user", "content": text},
+        ],
+        max_tokens=80,
+        temperature=0,
+    )
+    out = response.choices[0].message.content.strip()
+    if "{" not in out or "}" not in out:
+        return None
+    try:
+        j = json.loads(out[out.find("{") : out.rfind("}") + 1])
+        d = datetime.strptime(str(j["date"]).strip(), "%d.%m.%Y")
+        t = j.get("time")
+        if t is not None and str(t).strip():
+            t = str(t).strip()
+            if ":" not in t:
+                t = f"{int(t):02d}:00"
+            elif len(t) == 4 and t[1] == ":":
+                t = "0" + t
+            load_time_str = t
+        else:
+            load_time_str = None
+        return (d, load_time_str)
+    except (ValueError, KeyError, TypeError):
+        return None
     """Парсит запрос на груз из естественного языка"""
     if not client:
         return None

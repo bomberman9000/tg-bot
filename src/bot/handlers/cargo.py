@@ -9,7 +9,7 @@ from src.bot.states import CargoForm, EditCargo
 from src.bot.keyboards import main_menu, confirm_kb, cargo_actions, cargos_menu, cargo_open_list_kb, skip_kb, response_actions, deal_actions, city_kb, delete_confirm_kb, my_cargos_kb, cargo_edit_kb, price_suggest_kb
 from src.bot.utils import cargo_deeplink
 from src.bot.utils.cities import city_suggest
-from src.core.ai import parse_city
+from src.core.ai import parse_city, parse_load_datetime
 from src.core.database import async_session
 from src.core.models import (
     Cargo,
@@ -699,7 +699,9 @@ async def cargo_price(message: Message, state: FSMContext):
 
     await state.update_data(price=price)
     await message.answer(
-        "Дата загрузки (сегодня/завтра/послезавтра или ДД.ММ[.ГГГГ])"
+        "📅 Дата загрузки?\n\n"
+        "Можно: сегодня / завтра / послезавтра или ДД.ММ[.ГГГГ].\n"
+        "И сразу время: завтра в 10:00"
         + CANCEL_HINT
     )
     await state.set_state(CargoForm.load_date)
@@ -711,36 +713,31 @@ async def use_suggested_price(cb: CallbackQuery, state: FSMContext):
 
     await cb.message.edit_text(
         f"✅ Цена: {price:,} ₽\n\n"
-        "📅 Дата загрузки?\n\n"
-        "Формат: ДД.ММ.ГГГГ или 'завтра', 'послезавтра'"
+        "📅 Дата загрузки? (завтра / послезавтра / ДД.ММ или завтра в 10:00)"
     )
     await state.set_state(CargoForm.load_date)
     await cb.answer()
 
 @router.message(CargoForm.load_date)
 async def cargo_date(message: Message, state: FSMContext):
-    try:
-        raw = message.text.strip().lower()
-        today = datetime.now()
-        if raw in {"сегодня", "today"}:
-            load_date = today
-        elif raw in {"завтра", "tomorrow"}:
-            load_date = today + timedelta(days=1)
-        elif raw in {"послезавтра"}:
-            load_date = today + timedelta(days=2)
-        else:
-            text = message.text.strip()
-            if len(text.split(".")) == 2:
-                text += f".{today.year}"
-            load_date = datetime.strptime(text, "%d.%m.%Y")
-        await state.update_data(load_date=load_date)
+    parsed = parse_load_datetime(message.text)
+    if not parsed:
+        await message.answer(
+            "❌ Формат: сегодня/завтра/послезавтра или ДД.ММ[.ГГГГ], "
+            "можно с временем: завтра в 10:00"
+        )
+        return
+    load_date, load_time = parsed
+    await state.update_data(load_date=load_date, load_time=load_time)
+    if load_time:
+        await message.answer("💬 Комментарий?", reply_markup=skip_kb())
+        await state.set_state(CargoForm.comment)
+    else:
         await message.answer(
             "🕐 Время загрузки? (ЧЧ:ММ)\n\nПропустить — нажми кнопку",
             reply_markup=skip_kb(),
         )
         await state.set_state(CargoForm.load_time)
-    except:
-        await message.answer("❌ Формат: сегодня/завтра/послезавтра или ДД.ММ[.ГГГГ]")
 
 @router.message(CargoForm.load_time)
 async def cargo_time(message: Message, state: FSMContext):
