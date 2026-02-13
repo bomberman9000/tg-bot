@@ -1,6 +1,6 @@
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import InaccessibleMessage
 from aiogram.exceptions import TelegramBadRequest
@@ -10,7 +10,7 @@ bot = Bot(
     token=settings.bot_token,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
-dp = Dispatcher(storage=MemoryStorage())
+dp = Dispatcher(storage=RedisStorage.from_url(settings.redis_url))
 
 async def _inaccessible_edit_text(self, text: str, **kwargs):
     chat = getattr(self, "chat", None)
