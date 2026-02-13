@@ -10,6 +10,9 @@ RUN pip install uv
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
+# Чтобы exec python/uvicorn видел зависимости (не только uv run)
+ENV PATH="/app/.venv/bin:$PATH"
+
 COPY . .
 
 EXPOSE 8000

@@ -85,8 +85,14 @@ async def lifespan(app: FastAPI):
     dp.include_router(feedback_router)
     dp.include_router(errors_router)
     dp.include_router(reminder_router)
-    
-    polling_task = asyncio.create_task(dp.start_polling(bot))
+
+    async def _run_polling():
+        try:
+            await dp.start_polling(bot)
+        except Exception as e:
+            logger.error("Polling crashed: %s", e, exc_info=True)
+
+    polling_task = asyncio.create_task(_run_polling())
     asyncio.create_task(watchdog_loop())
     logger.info("Bot polling started")
     logger.info("Watchdog started")
