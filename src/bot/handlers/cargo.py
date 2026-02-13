@@ -728,7 +728,11 @@ async def cargo_date(message: Message, state: FSMContext):
         )
         return
     load_date, load_time = parsed
-    await state.update_data(load_date=load_date, load_time=load_time)
+    # В FSM (Redis) храним строку — datetime не сериализуется в JSON
+    await state.update_data(
+        load_date=load_date.strftime("%Y-%m-%d"),
+        load_time=load_time,
+    )
     if load_time:
         await message.answer("💬 Комментарий?", reply_markup=skip_kb())
         await state.set_state(CargoForm.comment)
@@ -768,14 +772,25 @@ async def cargo_skip_comment(cb: CallbackQuery, state: FSMContext):
     await show_confirm(cb.message, state)
     await cb.answer()
 
+def _load_date_from_state(data: dict):
+    """load_date в state хранится как 'YYYY-MM-DD'."""
+    raw = data.get("load_date")
+    if hasattr(raw, "strftime"):
+        return raw
+    if isinstance(raw, str):
+        return datetime.strptime(raw, "%Y-%m-%d")
+    return datetime.now()
+
+
 async def show_confirm(message: Message, state: FSMContext):
     data = await state.get_data()
+    load_date = _load_date_from_state(data)
     text = f"📦 <b>Подтверди публикацию:</b>\n\n"
     text += f"📍 {data['from_city']} → {data['to_city']}\n"
     text += f"📦 {data['cargo_type']}\n"
     text += f"⚖️ {data['weight']} т\n"
     text += f"💰 {data['price']} ₽\n"
-    text += f"📅 {data['load_date'].strftime('%d.%m.%Y')}"
+    text += f"📅 {load_date.strftime('%d.%m.%Y')}"
     if data.get("load_time"):
         text += f" в {data['load_time']}"
     text += "\n"
@@ -790,6 +805,7 @@ async def cargo_confirm_yes(cb: CallbackQuery, state: FSMContext):
     from datetime import datetime as _dt
 
     data = await state.get_data()
+    load_date = _load_date_from_state(data)
 
     async with async_session() as session:
         cargo = Cargo(
@@ -799,7 +815,7 @@ async def cargo_confirm_yes(cb: CallbackQuery, state: FSMContext):
             cargo_type=data['cargo_type'],
             weight=data['weight'],
             price=data['price'],
-            load_date=data['load_date'],
+            load_date=load_date,
             load_time=data.get('load_time'),
             comment=data.get('comment'),
         )
