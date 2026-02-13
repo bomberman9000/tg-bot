@@ -55,7 +55,11 @@ async def lifespan(app: FastAPI):
     redis = await get_redis()
     await redis.ping()
     logger.info("Redis connected")
-    
+
+    from aiogram.fsm.storage.redis import RedisStorage
+    dp.storage = RedisStorage(redis=redis)
+    logger.info("FSM storage: Redis")
+
     setup_scheduler()
     
     dp.message.middleware(WatchdogMiddleware())

@@ -180,6 +180,9 @@ async def onboarding_role(cb: CallbackQuery, state: FSMContext):
         await cb.answer("❌ Неизвестная роль", show_alert=True)
         return
 
+    # Отвечаем сразу — иначе клиент на новом устройстве показывает загрузку
+    await cb.answer()
+
     async with async_session() as session:
         user = (await session.execute(select(User).where(User.id == cb.from_user.id))).scalar_one_or_none()
         profile = await ensure_profile(session, cb.from_user.id)
@@ -197,7 +200,6 @@ async def onboarding_role(cb: CallbackQuery, state: FSMContext):
         reply_markup=contact_request_kb(),
     )
     await state.set_state(Onboarding.contact)
-    await cb.answer()
 
 @router.message(Onboarding.contact, F.contact)
 async def onboarding_contact(message: Message, state: FSMContext):
