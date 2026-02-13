@@ -64,6 +64,16 @@ async def lifespan(app: FastAPI):
 
     setup_scheduler()
 
+    async def debug_updates(handler, event, data):
+        kind = type(event).__name__
+        uid = getattr(event, "message_id", None) or getattr(event, "id", None)
+        logger.info("RAW UPDATE: %s (id=%s)", kind, uid)
+        return await handler(event, data)
+
+    dp.message.middleware(debug_updates)
+    dp.callback_query.middleware(debug_updates)
+    dp.inline_query.middleware(debug_updates)
+
     dp.message.middleware(WatchdogMiddleware())
     dp.callback_query.middleware(WatchdogMiddleware())
     dp.message.middleware(LoggingMiddleware())
