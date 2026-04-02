@@ -14,14 +14,17 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    networks:
+      - internal
     restart: unless-stopped
 
   redis:
     image: redis:alpine
-    ports:
-      - "6379:6379"
+    # Порты намеренно не публикуются — Redis доступен только внутри Docker-сети
     volumes:
       - redis_data:/data
+    networks:
+      - internal
     restart: unless-stopped
 
   postgres:
@@ -30,12 +33,17 @@ services:
       POSTGRES_USER: bot
       POSTGRES_PASSWORD: botpass
       POSTGRES_DB: botdb
-    ports:
-      - "5432:5432"
+    # Порты намеренно не публикуются — Postgres доступен только внутри Docker-сети
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
     restart: unless-stopped
 
 volumes:
   redis_data:
   postgres_data:
+
+networks:
+  internal:
+    driver: bridge
